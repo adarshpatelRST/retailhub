@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RetailHub Enterprise — Client Demonstration & Architectural Reference Guide</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 12mm 14mm 12mm 14mm;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #1e293b;
+    background-color: #ffffff;
+    font-size: 9.5pt;
+    line-height: 1.38;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    page-break-after: always;
+    break-after: page;
+    min-height: 270mm;
+    max-height: 270mm;
+    position: relative;
+    padding-bottom: 12mm;
+    overflow: hidden;
+  }
+  .page:last-child {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  
+  /* Running Header & Footer */
+  .doc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 4px;
+    margin-bottom: 12px;
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #475569;
+  }
+  .doc-header .brand {
+    color: #1e40af;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .doc-header .badge {
+    background: #eff6ff;
+    color: #1d4ed8;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #bfdbfe;
+    font-size: 7pt;
+  }
+  .doc-footer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 4px;
+    font-size: 7pt;
+    color: #64748b;
+  }
+
+  /* Headings & Text */
+  h1 {
+    font-size: 15pt;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
+  h2 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #1e3a8a;
+    border-left: 3.5px solid #2563eb;
+    padding-left: 8px;
+    margin-top: 10px;
+    margin-bottom: 6px;
+  }
+  h3 {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: #0f172a;
+    margin-top: 8px;
+    margin-bottom: 4px;
+  }
+  p {
+    margin-bottom: 6px;
+    color: #334155;
+    text-align: justify;
+  }
+  strong {
+    color: #0f172a;
+  }
+  .lead {
+    font-size: 9.5pt;
+    color: #334155;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3.5px solid #3b82f6;
+    padding: 7px 10px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 6px 0 10px 0;
+    font-size: 8pt;
+  }
+  th {
+    background-color: #1e293b;
+    color: #ffffff;
+    font-weight: 600;
+    text-align: left;
+    padding: 5px 7px;
+    border: 1px solid #334155;
+  }
+  td {
+    padding: 4.5px 7px;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+    vertical-align: middle;
+  }
+  tr:nth-child(even) td {
+    background-color: #f8fafc;
+  }
+  .num {
+    text-align: right;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-weight: 600;
+  }
+
+  /* Status Badges */
+  .badge-critical {
+    background: #fef2f2;
+    color: #b91c1c;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid #fecaca;
+    display: inline-block;
+  }
+  .badge-low {
+    background: #fffbeb;
+    color: #b45309;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid #fde68a;
+    display: inline-block;
+  }
+  .badge-healthy {
+    background: #f0fdf4;
+    color: #15803d;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid #bbf7d0;
+    display: inline-block;
+  }
+  .badge-excess {
+    background: #eef2ff;
+    color: #4338ca;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid #c7d2fe;
+    display: inline-block;
+  }
+  .badge-role {
+    background: #f1f5f9;
+    color: #0f172a;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 7pt;
+    font-weight: 700;
+    padding: 1.5px 5px;
+    border-radius: 3px;
+    border: 1px solid #cbd5e1;
+  }
+
+  /* Visual Flow & Metric Cards */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 6px 0;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin: 6px 0;
+  }
+  .grid-4 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 6px;
+    margin: 6px 0;
+  }
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 6px 8px;
+  }
+  .card-highlight {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-left: 3px solid #0284c7;
+    border-radius: 5px;
+    padding: 6px 8px;
+  }
+  .card-kpi {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .card-kpi .val {
+    font-size: 13pt;
+    font-weight: 800;
+    color: #1e40af;
+    font-family: "JetBrains Mono", Consolas, monospace;
+  }
+  .card-kpi .lbl {
+    font-size: 7pt;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    margin-top: 1px;
+  }
+
+  /* Diagram Flow Nodes */
+  .flow-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 8px;
+    margin: 8px 0;
+  }
+  .flow-step {
+    flex: 1;
+    background: #ffffff;
+    border: 1px solid #94a3b8;
+    border-radius: 4px;
+    padding: 6px 6px;
+    text-align: center;
+    font-size: 7.5pt;
+    font-weight: 600;
+    color: #0f172a;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .flow-arrow {
+    padding: 0 4px;
+    color: #2563eb;
+    font-weight: 800;
+    font-size: 11pt;
+  }
+
+  .formula {
+    background: #f1f5f9;
+    border: 1px dashed #94a3b8;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 8pt;
+    color: #0f172a;
+    margin: 4px 0 6px 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- ========================================================================= -->
+<!-- PAGE 1: EXECUTIVE OVERVIEW, ARCHITECTURE & VALUE PROPOSITION             -->
+<!-- ========================================================================= -->
+<div class="page">
+  <div class="doc-header">
+    <div class="brand">
+      <b>RetailHub Enterprise</b> | Platform Architectural & Demonstration Reference
+    </div>
+    <div class="badge">Page 1 of 6 &bull; Architecture</div>
+  </div>
+
+  <div style="text-align: center; margin-bottom: 8px;">
+    <h1>RETAILHUB ENTERPRISE FOUNDATION</h1>
+    <p style="font-size: 9pt; color: #475569; text-align: center;">
+      <b>High-Velocity Multi-Echelon Retail Inventory Rebalancing, POS Ingestion & Autonomous Logistics Platform</b><br>
+      <i>Modeled after High-Velocity Value Retail Networks (D-Mart / JioMart Model)</i>
+    </p>
+  </div>
+
+  <div class="lead">
+    <b>Executive Overview:</b> RetailHub eliminates the catastrophic retail paradox where Store A suffers frequent stockouts of high-velocity goods (losing immediate revenue and footfall), while Store B (25 km away in the same cluster) holds excess stock tying up working capital. RetailHub creates an automated closed loop: <b>POS Scanning &rarr; Runout Mathematics &rarr; Regional Proximity Rebalancing &rarr; Grounded AI Justifications &rarr; Audited Stock Transfers</b>.
+  </div>
+
+  <div class="flow-box">
+    <div class="flow-step" style="border-top: 3px solid #2563eb;"><b>1. POS Ingestion</b><br>Real-time register receipts capture true velocity</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step" style="border-top: 3px solid #0891b2;"><b>2. Inventory Ledger</b><br>Double-entry balances at 3-decimal precision</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step" style="border-top: 3px solid #dc2626;"><b>3. DOI Risk Math</b><br>Deterministic Days-of-Inventory runout calc</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step" style="border-top: 3px solid #16a34a;"><b>4. Donor Matching</b><br>Haversine road proximity & 7-day safety clamp</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step" style="border-top: 3px solid #7c3aed;"><b>5. Action Center</b><br>Human-in-the-loop AI approvals & transfers</div>
+  </div>
+
+  <h2>1. Enterprise Technical Architecture</h2>
+  <p>
+    Built as an enterprise-grade <b>Modular Monolith</b> delivering strict module encapsulation, sub-20ms dashboard query caching, and audited relational persistence:
+  </p>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>Frontend Client (React 19 & Vite)</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Built on <b>React 19, Vite, TanStack Query v5, and Tailwind CSS</b>. Features Radix UI accessible dialogs, responsive floor-associate mobile drawer views, and WebSocket (Socket.io) real-time state synchronization.
+      </p>
+    </div>
+    <div class="card">
+      <h3>API Monolith (NestJS 10 & Express 4)</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Full enterprise <b>NestJS 10</b> modular architecture with an agile Express 4 companion runtime. Enforces global exception translation, execution interceptors, and strict JWT strategy verification.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Microsoft SQL Server & Prisma ORM</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Structured across <b>21 normalized relational tables</b> with table-level filtered unique constraints, double-entry inventory ledgering, and optimistic concurrency version tracking.
+      </p>
+    </div>
+    <div class="card">
+      <h3>LangChain AI Service & Offline Engine</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Vendor-agnostic <b>LangChain</b> integration supporting Google Gemini (2.5 Flash, 3.5 Flash, 3.1 Pro) alongside a <b>Deterministic Rule Engine</b> that operates 100% offline and air-gapped.
+      </p>
+    </div>
+  </div>
+
+  <h2>2. Operational Benchmarks & Performance Specifications</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 28%;">Operational Dimension</th>
+        <th style="width: 36%;">RetailHub Performance Specification</th>
+        <th style="width: 36%;">Legacy ERP / Manual Retail Benchmark</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Network Scan Throughput</b></td>
+        <td><b>4,558 Store-SKU pairs evaluated in &lt; 1,600 ms</b></td>
+        <td>15 to 45 minutes in legacy batch overnight ERP runs</td>
+      </tr>
+      <tr>
+        <td><b>Inventory Quantity Precision</b></td>
+        <td><b>3-Decimal Precision (`Decimal(10, 3)`)</b> for loose bulk & packed</td>
+        <td>Truncated integers or 2-decimal rounding errors</td>
+      </tr>
+      <tr>
+        <td><b>Concurrency Protection</b></td>
+        <td><b>Optimistic Locking (`INV_CONCURRENCY_CONFLICT`)</b></td>
+        <td>Silent overwrite / phantom physical inventory</td>
+      </tr>
+      <tr>
+        <td><b>Donor Protection Floor</b></td>
+        <td><b>Strict 7-Day Safety Floor Clamp</b> prevents secondary stockouts</td>
+        <td>Unconstrained transfers causing donor stockouts</td>
+      </tr>
+      <tr>
+        <td><b>Executive Query Latency</b></td>
+        <td><b>&lt; 20 ms via Global In-Memory Cache</b> (`CacheModule`)</td>
+        <td>3.5 to 8.0 seconds on unindexed reporting cubes</td>
+      </tr>
+      <tr>
+        <td><b>Audit Compliance</b></td>
+        <td><b>100% Immutable JSON Field-Level Diffs</b> with credentials stripped</td>
+        <td>Unstructured system logs or missing change history</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="doc-footer">
+    <span>CONFIDENTIAL &bull; FOR CLIENT ENTERPRISE DEMONSTRATION ONLY</span>
+    <span>Page 1 of 6</span>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- PAGE 2: ENTERPRISE ROLES, RESPONSIBILITIES & AUTHORITY MATRIX            -->
+<!-- ========================================================================= -->
+<div class="page">
+  <div class="doc-header">
+    <div class="brand">
+      <b>RetailHub Enterprise</b> | Platform Architectural & Demonstration Reference
+    </div>
+    <div class="badge">Page 2 of 6 &bull; Governance & RBAC</div>
+  </div>
+
+  <h1>PAGE 2: Roles, Responsibilities & Authority Matrix</h1>
+  <div class="lead">
+    <b>Server-Side Data Scoping:</b> RetailHub enforces strict security boundaries via the <code>DataScopeGuard</code>. A user's JWT is cryptographically verified on every request. Data scoping filters are automatically injected into the database queries—guaranteeing that store managers cannot view peer store valuations, regional managers cannot view other zones, and platform administrators cannot alter data without full audit trails.
+  </div>
+
+  <h2>1. Detailed Role Profiles & Operating Responsibilities</h2>
+  <div class="grid-2">
+    <div class="card" style="border-top: 3px solid #2563eb;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+        <b>Store Manager</b>
+        <span class="badge-role">STORE_MANAGER</span>
+      </div>
+      <p style="font-size: 8pt; margin: 0;">
+        <b>Scope:</b> Strictly quarantined to assigned store ID.<br>
+        <b>Core Responsibilities:</b> Physical receiving at dock with barcode shortfall verification; cycle count variances and stock adjustments; submitting floor-level replenishment requests; executing register checkouts.<br>
+        <b>Data Boundary:</b> Peer store inventory balances, financial valuations, and margins are masked or inaccessible.
+      </p>
+    </div>
+
+    <div class="card" style="border-top: 3px solid #0891b2;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+        <b>Regional Manager</b>
+        <span class="badge-role">REGIONAL_MANAGER</span>
+      </div>
+      <p style="font-size: 8pt; margin: 0;">
+        <b>Scope:</b> Scoped to all stores in assigned regional cluster.<br>
+        <b>Core Responsibilities:</b> Reviewing AI rebalancing proposals across regional stores; single and batch approvals for morning dispatch waves; modifying transfer quantities with safety floor clamps; managing transit logistics.<br>
+        <b>Data Boundary:</b> Cannot view or access other geographical regions.
+      </p>
+    </div>
+
+    <div class="card" style="border-top: 3px solid #7c3aed;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+        <b>Executive (VP / Merchandising)</b>
+        <span class="badge-role">EXECUTIVE</span>
+      </div>
+      <p style="font-size: 8pt; margin: 0;">
+        <b>Scope:</b> Enterprise-wide national access across all regions.<br>
+        <b>Core Responsibilities:</b> National supply chain oversight; capital tied in excess stock vs. stockout risk valuation; overriding supply allocations; P&L margin contribution analytics; evaluating multi-store cluster performance.<br>
+        <b>Data Boundary:</b> Enterprise-wide full read/write visibility.
+      </p>
+    </div>
+
+    <div class="card" style="border-top: 3px solid #0f172a;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+        <b>Platform Administrator</b>
+        <span class="badge-role">ADMIN</span>
+      </div>
+      <p style="font-size: 8pt; margin: 0;">
+        <b>Scope:</b> Enterprise platform administration and governance.<br>
+        <b>Core Responsibilities:</b> User account provisioning with Argon2 password hashing; assigning store and region bindings; configuring background wave hours and sweep intervals; SCD Type 2 inventory rule policies; compliance audit review.<br>
+        <b>Data Boundary:</b> Enterprise-wide administrative control.
+      </p>
+    </div>
+  </div>
+
+  <h2>2. Granular Authority Matrix (Who Can & Cannot Do What)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 38%;">Feature / Operation</th>
+        <th style="width: 15%; text-align:center;">Store Manager</th>
+        <th style="width: 17%; text-align:center;">Regional Manager</th>
+        <th style="width: 15%; text-align:center;">Executive</th>
+        <th style="width: 15%; text-align:center;">Platform Admin</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Executive Dashboard & Enterprise KPIs</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>Scoped Store Manager Dashboard</b></td>
+        <td style="text-align:center; color:#16a34a;">&check; Own Store Only</td>
+        <td style="text-align:center; color:#16a34a;">&check; Cluster Stores</td>
+        <td style="text-align:center; color:#16a34a;">&check; Any Store</td>
+        <td style="text-align:center; color:#16a34a;">&check; Any Store</td>
+      </tr>
+      <tr>
+        <td><b>Product Catalog Search & Categories</b></td>
+        <td style="text-align:center; color:#16a34a;">&check; Read-Only</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Catalog</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Catalog</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Catalog</td>
+      </tr>
+      <tr>
+        <td><b>Product Creation & CSV Bulk Onboarding</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>Stock Adjustments & Cycle Counts</b></td>
+        <td style="text-align:center; color:#16a34a;">&check; Own Store Only</td>
+        <td style="text-align:center; color:#16a34a;">&check; Cluster Stores</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Override Allowed</td>
+      </tr>
+      <tr>
+        <td><b>Stock Transfer Inward Dock Scan & Receive</b></td>
+        <td style="text-align:center; color:#16a34a;">&check; Own Store Dock</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Read-Only</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Read-Only</td>
+        <td style="text-align:center; color:#16a34a;">&check; Override Allowed</td>
+      </tr>
+      <tr>
+        <td><b>Create Manual Store Request (New Rec)</b></td>
+        <td style="text-align:center; color:#16a34a;">&check; Own Store Only</td>
+        <td style="text-align:center; color:#16a34a;">&check; Cluster Stores</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>Approve Single Recommendation</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Scoped Cluster</td>
+        <td style="text-align:center; color:#16a34a;">&check; Enterprise-Wide</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>Batch Approve Recommendations</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Scoped Cluster</td>
+        <td style="text-align:center; color:#16a34a;">&check; Enterprise-Wide</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>Modify Recommendation (Qty / Donor)</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Scoped Cluster</td>
+        <td style="text-align:center; color:#16a34a;">&check; Enterprise-Wide</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>Reject Recommendation (With Reason)</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Scoped Cluster</td>
+        <td style="text-align:center; color:#16a34a;">&check; Enterprise-Wide</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>Configure Background Sweep Schedule</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>User Management & Store Assignments</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Access</td>
+      </tr>
+      <tr>
+        <td><b>Inspect Immutable Audit Logs & Diffs</b></td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#dc2626;">&cross; Blocked</td>
+        <td style="text-align:center; color:#16a34a;">&check; Read-Only</td>
+        <td style="text-align:center; color:#16a34a;">&check; Full Inspection</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="doc-footer">
+    <span>CONFIDENTIAL &bull; FOR CLIENT ENTERPRISE DEMONSTRATION ONLY</span>
+    <span>Page 2 of 6</span>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- PAGE 3: CORE OPERATIONS MODULES & INVENTORY HEALTH ENGINE                 -->
+<!-- ========================================================================= -->
+<div class="page">
+  <div class="doc-header">
+    <div class="brand">
+      <b>RetailHub Enterprise</b> | Platform Architectural & Demonstration Reference
+    </div>
+    <div class="badge">Page 3 of 6 &bull; Operations & Ledger</div>
+  </div>
+
+  <h1>PAGE 3: Core Operations Modules & Inventory Ledger</h1>
+  <div class="lead">
+    <b>High-Velocity Ledgering:</b> In discount retail, physical inventory must balance down to the milligram, checkouts must never hang on locks, and stock in transit must be fully accounted for. RetailHub implements high-precision, optimistic concurrency control and immutable double-entry movement ledgering.
+  </div>
+
+  <h2>1. Catalog Management & Barcode-First Ingestion</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Barcode-First Register Search</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Registers scan standard <b>13-digit EAN/UPC barcodes</b>. The search engine resolves exact barcode matches in &lt; 10 ms, falling back to tri-gram partial text across SKU and description only when unbarcoded items are queried.
+      </p>
+    </div>
+    <div class="card">
+      <h3>D-Mart Value-Pricing Validation</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Strict catalog validation formula: <b><code>MRP &ge; Selling Price &ge; Cost Price</code></b>. Prevents negative gross margins, loss-making onboarding, and legal non-compliance across all 500 catalog items.
+      </p>
+    </div>
+  </div>
+
+  <h2>2. Double-Entry Inventory Movement Ledger</h2>
+  <p>
+    Physical inventory balances are never directly updated without a corresponding row in the <code>InventoryMovement</code> table. This provides a forensic, tamper-proof audit trail for every gram of product:
+  </p>
+
+  <div class="grid-3">
+    <div class="card" style="border-left: 3px solid #16a34a;">
+      <b>INWARD_RECEIPT (+)</b><br>
+      <span style="font-size: 7.5pt; color: #64748b;">Direct intake from Central Distribution Center or supplier PO.</span>
+    </div>
+    <div class="card" style="border-left: 3px solid #dc2626;">
+      <b>POS_SALE (-)</b><br>
+      <span style="font-size: 7.5pt; color: #64748b;">Point-of-sale register checkouts deduct shelf inventory.</span>
+    </div>
+    <div class="card" style="border-left: 3px solid #2563eb;">
+      <b>TRANSFER_OUT_DISPATCH (-)</b><br>
+      <span style="font-size: 7.5pt; color: #64748b;">Stock loaded on carrier; moves from available to in-transit.</span>
+    </div>
+    <div class="card" style="border-left: 3px solid #0891b2;">
+      <b>TRANSFER_IN_RECEIPT (+)</b><br>
+      <span style="font-size: 7.5pt; color: #64748b;">Dock inward scan confirms shipment receipt at destination.</span>
+    </div>
+    <div class="card" style="border-left: 3px solid #d97706;">
+      <b>DAMAGED_WRITE_OFF (-)</b><br>
+      <span style="font-size: 7.5pt; color: #64748b;">Auto-written off upon road transit shortfall or dock damage.</span>
+    </div>
+    <div class="card" style="border-left: 3px solid #64748b;">
+      <b>STOCK_ADJUSTMENT (&plusmn;)</b><br>
+      <span style="font-size: 7.5pt; color: #64748b;">Physical cycle count variance with mandatory reason codes.</span>
+    </div>
+  </div>
+
+  <h2>3. The 3-Step Stock Transfer State Machine</h2>
+  <p>
+    Eliminates stock leakage during inter-store truck transit through three strictly audited states:
+  </p>
+  
+  <div class="flow-box" style="margin: 6px 0;">
+    <div class="flow-step">
+      <b>PENDING_APPROVAL</b><br>
+      Proposal created by AI or Store Manager.<br>
+      <i>Stock unchanged at both stores.</i>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step" style="background: #eff6ff; border-color: #3b82f6;">
+      <b>APPROVED_IN_TRANSIT</b><br>
+      Approved by Regional Manager.<br>
+      <i>Donor stock &darr; | In-Transit stock &uarr;</i><br>
+      Carrier & Vehicle Number assigned.
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step" style="background: #f0fdf4; border-color: #22c55e;">
+      <b>RECEIVED</b><br>
+      Dock barcode scan verifies shipment.<br>
+      <i>In-Transit stock &darr; | Dest stock &uarr;</i><br>
+      Shortfalls &rarr; Auto DAMAGED_WRITE_OFF.
+    </div>
+  </div>
+
+  <h2>4. Rolling Sales Velocity (ADS) Calculation</h2>
+  <div class="formula">
+    Rolling ADS (Units/Day) = (Total Quantity Sold over past 30 days) / 30.0
+  </div>
+  <p style="font-size: 8pt; margin: 0;">
+    Captured continuously from POS checkout transactions. If an item has 0 sales in 30 days, ADS is strictly <code>0.000</code>, producing a dormant DOI of <code>999.0 days</code> (preventing false alarms). If positive sales exist, DOI immediately reflects live customer velocity.
+  </p>
+
+  <div class="doc-footer">
+    <span>CONFIDENTIAL &bull; FOR CLIENT ENTERPRISE DEMONSTRATION ONLY</span>
+    <span>Page 3 of 6</span>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- PAGE 4: INTELLIGENCE ENGINE & RECOMMENDATION GENERATION                  -->
+<!-- ========================================================================= -->
+<div class="page">
+  <div class="doc-header">
+    <div class="brand">
+      <b>RetailHub Enterprise</b> | Platform Architectural & Demonstration Reference
+    </div>
+    <div class="badge">Page 4 of 6 &bull; Intelligence & AI</div>
+  </div>
+
+  <h1>PAGE 4: Intelligence Engine & Recommendation Generation</h1>
+  <div class="lead">
+    <b>Deterministic Runout & Proximity:</b> RetailHub generates recommendations using mathematical formulas rather than black-box guesses. Runout risk is determined by physical velocity; donor stores are ranked by Haversine road proximity; and transfers are strictly clamped by the 7-day donor safety floor.
+  </div>
+
+  <h2>1. Days of Inventory (DOI) & Stock Health Tiers</h2>
+  <div class="formula">
+    DOI = Available Stock / Rolling 30-Day ADS
+  </div>
+
+  <div class="grid-4">
+    <div class="card" style="border-top: 3px solid #dc2626; text-align:center;">
+      <span class="badge-critical">CRITICAL ZONE</span>
+      <div style="font-size: 11pt; font-weight: 800; color: #b91c1c; margin: 3px 0;">&lt; 3.0 Days</div>
+      <span style="font-size: 7pt; color: #64748b;">Immediate stockout risk; revenue bleed occurring; triggers High Priority rebalance.</span>
+    </div>
+    <div class="card" style="border-top: 3px solid #d97706; text-align:center;">
+      <span class="badge-low">LOW ZONE</span>
+      <div style="font-size: 11pt; font-weight: 800; color: #b45309; margin: 3px 0;">3.0 to 7.0 Days</div>
+      <span style="font-size: 7pt; color: #64748b;">Approaching reorder point; replenishment candidate to avoid stockout.</span>
+    </div>
+    <div class="card" style="border-top: 3px solid #16a34a; text-align:center;">
+      <span class="badge-healthy">HEALTHY ZONE</span>
+      <div style="font-size: 11pt; font-weight: 800; color: #15803d; margin: 3px 0;">7.0 to 30.0 Days</div>
+      <span style="font-size: 7pt; color: #64748b;">Optimal operational equilibrium; maximum working capital efficiency.</span>
+    </div>
+    <div class="card" style="border-top: 3px solid #4f46e5; text-align:center;">
+      <span class="badge-excess">EXCESS ZONE</span>
+      <div style="font-size: 11pt; font-weight: 800; color: #4338ca; margin: 3px 0;">&gt; 30.0 Days</div>
+      <span style="font-size: 7pt; color: #64748b;">Surplus dormant stock tying up capital; designated primary candidate donor.</span>
+    </div>
+  </div>
+
+  <h2>2. Autonomous Generation: The Background Engine Safeguards</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>The 7-Day Donor Safety Floor Clamp</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Solving a stockout at Store A must <b>never cause a secondary stockout at Store B</b>. The rebalance algorithm verifies:
+      </p>
+      <div class="formula" style="font-size: 7.5pt; margin: 3px 0;">
+        Post-Transfer DOI (Donor) = (Donor Stock - Transfer Qty) / Donor ADS &ge; 7.0 Days
+      </div>
+      <p style="font-size: 7.5pt; color: #64748b; margin: 0;">
+        If transferring the requested quantity causes the donor store's buffer to drop below 7.0 days, the transferable stock is automatically clamped to only what is genuinely surplus.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3>Haversine Road Proximity Ranking</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Candidate donors must reside in the same regional cluster. Proximity is ranked using Great-Circle road distance:
+      </p>
+      <div class="formula" style="font-size: 7.5pt; margin: 3px 0;">
+        d = 2R &middot; arcsin(&radic;(sin&sup2;(&Delta;lat/2) + cos(lat1)cos(lat2)sin&sup2;(&Delta;lon/2)))
+      </div>
+      <p style="font-size: 7.5pt; color: #64748b; margin: 0;">
+        Nearest eligible donor is prioritized to minimize truck transit time and logistics costs. If no peer qualifies, the system defaults to <b>Central Supply Fallback</b>.
+      </p>
+    </div>
+  </div>
+
+  <h2>3. Manual Generation: Store Manager Request Workflow</h2>
+  <p>
+    Floor associates identify surge demand early:
+  </p>
+  <ul>
+    <li style="font-size: 8pt; margin-bottom: 2px;"><b>Initiation:</b> Store Manager clicks <b>"New Store Request"</b> in Action Center.</li>
+    <li style="font-size: 8pt; margin-bottom: 2px;"><b>Inputs:</b> Selects Product SKU, enters required quantity, sets priority (`HIGH`, `MEDIUM`, `LOW`), and enters operational rationale (e.g., <i>"Weekend promotional display"</i>).</li>
+    <li style="font-size: 8pt; margin-bottom: 2px;"><b>System Action:</b> Persists record with <code>isManualRequest = true</code> and tags requesting user ID. Appears immediately in the Regional Manager's queue under the <b>"Store Requests"</b> tab.</li>
+  </ul>
+
+  <h2>4. Vendor-Agnostic LangChain AI & Model Switcher</h2>
+  <p>
+    Every proposal includes a concise, authoritative 2-sentence executive justification citing runout days and donor buffer:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 25%;">Model Option</th>
+        <th style="width: 35%;">Engine Provider</th>
+        <th style="width: 40%;">Recommended Production Use Case</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Gemini 2.5 Flash</b></td>
+        <td>Google Gemini API (Default)</td>
+        <td>Standard production rebalancing; ultra-fast (< 600 ms) narrative reasoning.</td>
+      </tr>
+      <tr>
+        <td><b>Gemini 3.5 Flash</b></td>
+        <td>Google Gemini API</td>
+        <td>High-capacity architecture for network-wide peak holiday evaluations.</td>
+      </tr>
+      <tr>
+        <td><b>Gemini 3.1 Pro Preview</b></td>
+        <td>Google Gemini API</td>
+        <td>Complex cross-regional multi-echelon supply disruptions and deep constraints.</td>
+      </tr>
+      <tr>
+        <td><b>Deterministic Rule Engine</b></td>
+        <td>Offline Rule Engine (Built-In)</td>
+        <td><b>Air-gapped retail deployments</b> or when external cloud APIs are unavailable.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="doc-footer">
+    <span>CONFIDENTIAL &bull; FOR CLIENT ENTERPRISE DEMONSTRATION ONLY</span>
+    <span>Page 4 of 6</span>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- PAGE 5: ACTION CENTER WORKFLOWS, HUMAN-IN-THE-LOOP & EXECUTION            -->
+<!-- ========================================================================= -->
+<div class="page">
+  <div class="doc-header">
+    <div class="brand">
+      <b>RetailHub Enterprise</b> | Platform Architectural & Demonstration Reference
+    </div>
+    <div class="badge">Page 5 of 6 &bull; Action Center & Approvals</div>
+  </div>
+
+  <h1>PAGE 5: Action Center & Human-in-the-Loop Execution</h1>
+  <div class="lead">
+    <b>The Operational Cockpit:</b> The Action Center provides complete contextual transparency before a manager commits physical inventory. It features side-by-side DOI comparisons, interactive candidate store selectors, and four audited action pathways.
+  </div>
+
+  <h2>1. Action Center Interface Anatomy</h2>
+  <div class="grid-3">
+    <div class="card-highlight">
+      <h3>1. Side-by-Side Comparison</h3>
+      <p style="font-size: 7.5pt; margin: 0;">
+        Displays Destination vs. Donor store metrics side-by-side: Current stock vs. Post-Transfer stock, Current DOI vs. Projected DOI, and visual color gauges.
+      </p>
+    </div>
+    <div class="card-highlight">
+      <h3>2. AI Narrative Card</h3>
+      <p style="font-size: 7.5pt; margin: 0;">
+        Explains why the action is optimal, citing exact days of inventory, safety stock buffers, road distance (km), and projected transit time.
+      </p>
+    </div>
+    <div class="card-highlight">
+      <h3>3. Candidate Store Selector</h3>
+      <p style="font-size: 7.5pt; margin: 0;">
+        Allows the manager to override the AI's donor choice, listing all regional peer stores ranked by proximity with live safety floor eligibility.
+      </p>
+    </div>
+  </div>
+
+  <h2>2. The 4 Operational Decision Pathways</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Decision Pathway</th>
+        <th style="width: 38%;">Operational Trigger & Workflow</th>
+        <th style="width: 40%;">System Execution & Database Impact</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>1. Single Approval<br>(<code>APPROVE</code>)</b></td>
+        <td>Manager reviews proposal drawer and clicks <b>"Approve Transfer"</b>.</td>
+        <td>
+          Creates <code>StockTransfer</code> in <code>APPROVED_IN_TRANSIT</code> status. Decrements donor available stock; increments in-transit stock; logs <code>TRANSFER_OUT_DISPATCH</code>. Recommendation marked <code>APPROVED</code>.
+        </td>
+      </tr>
+      <tr>
+        <td><b>2. Batch Approval<br>(<code>BATCH_APPROVE</code>)</b></td>
+        <td>Manager selects 5–50 recommendations via table checkboxes and clicks <b>"Approve Selected (N)"</b> on the floating bar.</td>
+        <td>
+          Processes all selected items in an atomic database transaction. Generates consolidated transfer manifests and updates total approved valuation.
+        </td>
+      </tr>
+      <tr>
+        <td><b>3. Modification<br>(<code>MODIFY</code>)</b></td>
+        <td>Manager adjusts transfer quantity or selects an alternative donor store. Mandatory operational rationale required.</td>
+        <td>
+          <b>Re-validates the 7-day donor safety floor.</b> If proposed quantity breaches the donor's 7-day buffer, system rejects modification. Updates status to <code>MODIFIED</code>.
+        </td>
+      </tr>
+      <tr>
+        <td><b>4. Rejection<br>(<code>REJECT</code>)</b></td>
+        <td>Manager clicks <b>"Reject"</b>. System requires a mandatory business justification before committing.</td>
+        <td>
+          Transitions status to <code>REJECTED</code>. Records full rationale in <code>ActionHistory</code> and audit log. Prevents redundant generation for this cycle.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. Automated Transfer Execution & Inward Dock Receiving</h2>
+  <div class="grid-2">
+    <div class="card">
+      <h3>Carrier Dispatch & In-Transit Tracking</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Upon approval, transfers receive a tracking code (e.g. <code>TRF-C1-849201</code>), vehicle registration number, and carrier assignment (e.g. BlueDart Express Retail Logistics). Physical inventory is quarantined in-transit so neither store accidentally sells it.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Dock Scans & Shortfall Write-Off</h3>
+      <p style="font-size: 8pt; margin: 0;">
+        Destination store scans incoming shipment. If full quantity is received, destination available stock increments. If transit damage occurs (e.g. 20 dispatched, 18 received), system accepts 18 units and <b>automatically logs an audited <code>DAMAGED_WRITE_OFF</code> for 2 units</b>.
+      </p>
+    </div>
+  </div>
+
+  <h2>4. Autonomous Self-Healing & Auto-Expiration</h2>
+  <p style="font-size: 8pt; margin: 0;">
+    If a store manager leaves a recommendation open, but the store subsequently receives a separate direct shipment from Central Supply that raises inventory above the reorder point:
+  </p>
+  <div class="formula" style="font-size: 8pt; margin: 3px 0;">
+    If Current Stock > Reorder Level &rarr; Recommendation Status transitions to AUTO_EXPIRED
+  </div>
+  <p style="font-size: 7.5pt; color: #64748b; margin: 0;">
+    The background engine auto-closes the recommendation with reason: <i>"Auto-closed: Shelf stock replenished via inward receipt."</i>
+  </p>
+
+  <div class="doc-footer">
+    <span>CONFIDENTIAL &bull; FOR CLIENT ENTERPRISE DEMONSTRATION ONLY</span>
+    <span>Page 5 of 6</span>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- PAGE 6: ANALYTICS, 6 ENTERPRISE REPORTS & 15-MIN DEMO SCRIPT             -->
+<!-- ========================================================================= -->
+<div class="page">
+  <div class="doc-header">
+    <div class="brand">
+      <b>RetailHub Enterprise</b> | Platform Architectural & Demonstration Reference
+    </div>
+    <div class="badge">Page 6 of 6 &bull; Analytics & Demo Script</div>
+  </div>
+
+  <h1>PAGE 6: Analytics, 6 Enterprise Reports & Demo Script</h1>
+  <div class="lead">
+    <b>Executive Visibility:</b> Complete compliance and audit transparency through 6 role-scoped reports (exportable to Excel and PDF), real-time Recharts visual analytics, and an immutable JSON diff audit trail.
+  </div>
+
+  <h2>1. The 6 Role-Scoped Enterprise Reports</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 28%;">Report Name</th>
+        <th style="width: 42%;">Key Attributes & Metrics Tracked</th>
+        <th style="width: 30%;">Business Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>1. Sales & Margin Report</b></td>
+        <td>Invoice Number, Date, Store, SKU, Qty Sold, Unit Price, Net Sales, Gross Margin (INR), Margin %.</td>
+        <td>Real-time register audit log and profitability contribution.</td>
+      </tr>
+      <tr>
+        <td><b>2. Inventory Health Report</b></td>
+        <td>Store, SKU, Barcode, Available Stock, In-Transit, ADS, Current DOI, Min/Max ROP, Valuation, Health Zone.</td>
+        <td>Complete stock buffer audit and capital allocation overview.</td>
+      </tr>
+      <tr>
+        <td><b>3. Store Performance Matrix</b></td>
+        <td>Store Code, Name, Region, Total Revenue, Units Sold, Margin %, Valuation, Avg DOI, Critical SKUs, Health Score.</td>
+        <td>Comparative cross-store operational benchmarking.</td>
+      </tr>
+      <tr>
+        <td><b>4. Rebalancing Audit Report</b></td>
+        <td>Rec Number, Priority, Status, SKU, Dest Store, Donor Store, Qty, Distance Km, Valuation, DOI Before & After.</td>
+        <td>Inter-store logistics performance and AI rebalance tracking.</td>
+      </tr>
+      <tr>
+        <td><b>5. 16-Column Master SKU Report</b></td>
+        <td>SKU, Barcode, Name, Category, Brand, Cost/MRP/Selling Price, Margin %, Available, In-Transit, ADS, DOI, Velocity Tier.</td>
+        <td>Detailed merchandising and fast-mover / dead-stock analysis.</td>
+      </tr>
+      <tr>
+        <td><b>6. Compliance Audit Log Report</b></td>
+        <td>Timestamp, User ID, Actor Name, Role, Action, Entity, IP Address, Field-level JSON Diffs (Old vs New).</td>
+        <td>Regulatory SOX / SOC2 compliance and fraud prevention.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>2. Step-by-Step 15-Minute Client Demonstration Flow</h2>
+  <div class="grid-3">
+    <div class="card" style="border-top: 2px solid #2563eb;">
+      <b>Min 00–03: Executive Dashboard</b><br>
+      <span style="font-size: 7.5pt; color: #475569;">
+        Log in as <code>executive@retailhub.com</code>. Highlight the 6 KPIs. Frame the business problem: <i>"RetailHub shifts excess inventory to depleted stores without buying new stock."</i>
+      </span>
+    </div>
+    <div class="card" style="border-top: 2px solid #0891b2;">
+      <b>Min 03–06: Catalog & 3-Decimal Ledger</b><br>
+      <span style="font-size: 7.5pt; color: #475569;">
+        Navigate to Products. Scan barcode <code>890103000001</code>. Open Category Tree. Navigate to Inventory and show 3-decimal precision and the double-entry movement ledger.
+      </span>
+    </div>
+    <div class="card" style="border-top: 2px solid #7c3aed;">
+      <b>Min 06–10: Action Center in Action</b><br>
+      <span style="font-size: 7.5pt; color: #475569;">
+        Navigate to Action Center. Open a High-Priority card. Show Side-by-Side DOI gauges and AI Narrative. Approve 1 item, then use Batch Approve Bar for 3 items. Submit a Store Request.
+      </span>
+    </div>
+    <div class="card" style="border-top: 2px solid #16a34a;">
+      <b>Min 10–12: Transfers & Receiving Dock</b><br>
+      <span style="font-size: 7.5pt; color: #475569;">
+        Navigate to Transfers. Show newly created shipments in <code>APPROVED_IN_TRANSIT</code>. Click "Receive Transfer" to show dock receiving and automated damaged write-off.
+      </span>
+    </div>
+    <div class="card" style="border-top: 2px solid #d97706;">
+      <b>Min 12–14: Reports & Audit Diffs</b><br>
+      <span style="font-size: 7.5pt; color: #475569;">
+        Navigate to Reports &rarr; SKU Performance. Demonstrate 1-click Export to Excel. Navigate to Audit Logs and inspect the JSON diff showing who approved what.
+      </span>
+    </div>
+    <div class="card" style="border-top: 2px solid #0f172a;">
+      <b>Min 14–15: Scheduler & AI Switcher</b><br>
+      <span style="font-size: 7.5pt; color: #475569;">
+        Navigate to Configurations. Point out Background Engine banner (4,558 pairs in &lt; 1,600ms). Demonstrate switching from Gemini to the Offline Deterministic Rule Engine.
+      </span>
+    </div>
+  </div>
+
+  <h2>3. Standard Demo User Credentials</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 25%;">Corporate Role</th>
+        <th style="width: 30%;">Login Email</th>
+        <th style="width: 20%;">Password</th>
+        <th style="width: 25%;">Assigned Scope</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Platform Administrator</b></td>
+        <td><code>admin@retailhub.com</code></td>
+        <td><code>RetailHub@2026</code></td>
+        <td>Enterprise-wide governance</td>
+      </tr>
+      <tr>
+        <td><b>Executive (VP Operations)</b></td>
+        <td><code>executive@retailhub.com</code></td>
+        <td><code>RetailHub@2026</code></td>
+        <td>Enterprise-wide visibility</td>
+      </tr>
+      <tr>
+        <td><b>Regional Manager</b></td>
+        <td><code>regional.central@retailhub.com</code></td>
+        <td><code>RetailHub@2026</code></td>
+        <td>Central MP Cluster</td>
+      </tr>
+      <tr>
+        <td><b>Store Manager</b></td>
+        <td><code>store.bhopal@retailhub.com</code></td>
+        <td><code>RetailHub@2026</code></td>
+        <td>Bhopal MP Nagar (BPL-001)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="doc-footer">
+    <span>CONFIDENTIAL &bull; FOR CLIENT ENTERPRISE DEMONSTRATION ONLY</span>
+    <span>Page 6 of 6</span>
+  </div>
+</div>
+
+</body>
+</html>
