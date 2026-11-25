@@ -1,0 +1,322 @@
+# TASK: Generate RetailHub Authentication, Admin User Onboarding (with Nodemailer Email Dispatch) & Master Form Validation Engine
+Target Stack: Node.js (v20+ LTS), NestJS, TypeScript, Prisma ORM, Nodemailer, Argon2, React 18/19, Vite, Tailwind CSS, Radix UI, CVA, Lucide React, Sonner, React Hook Form + Zod.
+Architecture: Full-Stack Integration across `apps/api/` (Core Security & Mail) and `apps/web/` (Auth & Admin Views).
+Domain: Enterprise Retail Operations (D-Mart / JioMart high-velocity model).
+Prerequisites: Chunks B1 through B7 (Backend) and Chunks F1 through F5 (Frontend) are active.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Enterprise User Onboarding Workflow (No Public Sign-Up):
+   - Only 2 accounts exist at boot: `admin@retailhub.com` (`ADMIN`) and `executive@retailhub.com` (`EXECUTIVE`).
+   - Store Managers and Regional Managers are created, assigned, and managed strictly by the `ADMIN` in `/admin/users`.
+   - When an Admin onboards a manager, the backend (`MailService`) automatically sends an HTML welcome email with their login credentials, assigned role/scope, and a non-mandatory suggestion to change their password from their profile menu.
+3. Master Form Validation & Security Standards (Zod + class-validator):
+   - Strong Password Policy: Minimum 8 characters, at least 1 uppercase letter, 1 lowercase letter, 1 digit, and 1 special character (`[!@#$%^&*(),.?":{}|<>]`).
+     Regex: `/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$/`.
+   - Every password input MUST include an interactive show/hide Eye toggle icon (`Eye` / `EyeOff` from Lucide React).
+   - Every form setting or resetting a password MUST include a `confirmPassword` field with a strict matching refinement.
+   - String Sanitization: Every text input is trimmed (`.trim()`), and every email is normalized to lowercase (`.toLowerCase()`). Blank or whitespace-only inputs are strictly rejected.
+   - Strict Numeric Input Lock: Number inputs (prices, quantities, stock) must block invalid keystrokes (`'e'`, `'+'`, `'-'`, non-numeric chars) via a reusable `blockInvalidNumberKeys` utility.
+   - UOM-Aware Quantities: If a product's UOM is `PIECE` or `PACK`, quantities must be integers only (`Number.isInteger()`). If `KG` or `LITRE`, allow up to 3 decimal places.
+   - Price Spread Rule: Enforce `costPrice <= sellingPrice <= mrp` (selling price can never exceed MRP).
+   - 10-Digit Indian Mobile Number: Validate `^[6-9]\d{9}$` after automatically stripping spaces, hyphens, and leading `+91` or `0`.
+4. Role-Based Landing Redirects After Login:
+   - `EXECUTIVE` & `ADMIN` -> `/dashboard/executive`.
+   - `REGIONAL_MANAGER` -> `/intelligence/action-center`.
+   - `STORE_MANAGER` -> `/dashboard/store` (automatically scoped to their assigned store).
+5. Voluntary Password Change:
+   - Managers can click their Avatar in `RH_Header` -> "Change Password" to update their password at any time via `ChangePasswordModal.tsx`.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+
+### Backend (`apps/api/src/`):
+1. `core/mail/mail.service.ts` — Nodemailer SMTP service sending HTML welcome emails with credentials and dev console fallback.
+2. `core/mail/mail.module.ts` — Global mail module.
+3. `core/security/auth.service.ts` — Login validation with Argon2, JWT signing, user profile extraction, and password change handler.
+4. `core/security/auth.controller.ts` — Endpoints: `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `POST /api/v1/auth/change-password`.
+5. `core/security/users.service.ts` — Admin CRUD for users, dynamic role switching, store/region reassignments, and password reset with email dispatch.
+6. `core/security/users.controller.ts` — Admin endpoints: `GET /api/v1/users`, `POST /api/v1/users`, `PUT /api/v1/users/:id`, `POST /api/v1/users/:id/reset-password`.
+7. `core/security/dto/auth.dto.ts` — Login, ChangePassword, and ResetPassword DTOs with class-validator annotations.
+8. `core/security/dto/create-user.dto.ts` — Admin onboarding DTO with role-conditional store/region scope validation.
+
+### Frontend (`apps/web/src/`):
+9. `lib/validation-rules.ts` — Reusable Zod schemas, regex constants, and `blockInvalidNumberKeys` utility.
+10. `modules/auth/api/auth.api.ts` — Typed Axios endpoints for login, getMe, changePassword, and admin user CRUD.
+11. `modules/auth/LoginView.tsx` — Clean corporate login screen with email, password (eye toggle), "Forgot Password?" dialog, and role redirect.
+12. `modules/auth/components/ChangePasswordModal.tsx` — User self-service password update dialog.
+13. `modules/administration/components/CreateEditUserModal.tsx` — Admin onboarding dialog with dynamic role-driven store/region picker.
+14. `modules/administration/components/ResetPasswordModal.tsx` — Admin dialog to reset a manager's password and email new credentials.
+15. Updated `modules/administration/UserManagementView.tsx` — User directory table displaying assigned scope badges, status toggle, and action buttons.
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. Backend Mail Service (`src/core/mail/mail.service.ts`)
+```typescript
+import { Injectable, Logger } from '@nestjs/common';
+import * as nodemailer from 'nodemailer';
+
+export interface WelcomeEmailData {
+  toEmail: string;
+  fullName: string;
+  role: string;
+  assignedScopeDescription: string;
+  initialPassword: string;
+  loginUrl: string;
+}
+
+@Injectable()
+export class MailService {
+  private readonly logger = new Logger(MailService.name);
+  private transporter: nodemailer.Transporter;
+
+  constructor() {
+    this.transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.ethereal.email',
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER || '',
+        pass: process.env.SMTP_PASS || '',
+      },
+    });
+  }
+
+  async sendWelcomeCredentials(data: WelcomeEmailData): Promise<void> {
+    const mailOptions = {
+      from: process.env.MAIL_FROM || '"RetailHub System" <noreply@retailhub.com>',
+      to: data.toEmail,
+      subject: 'Welcome to RetailHub — Your Account Credentials',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <h2 style="color: #1e3a8a;">Welcome to RetailHub</h2>
+          <p>Hello <strong>${data.fullName}</strong>,</p>
+          <p>An enterprise account has been created for you with the following operational authority:</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <tr><td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">Role</td><td style="padding: 8px; border: 1px solid #cbd5e1;">${data.role}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">Assigned Scope</td><td style="padding: 8px; border: 1px solid #cbd5e1;">${data.assignedScopeDescription}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">Login Email</td><td style="padding: 8px; border: 1px solid #cbd5e1;">${data.toEmail}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold;">Temporary Password</td><td style="padding: 8px; border: 1px solid #cbd5e1; font-family: monospace;">${data.initialPassword}</td></tr>
+          </table>
+          <p style="margin: 20px 0;">
+            <a href="${data.loginUrl}" style="background-color: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Sign In to RetailHub</a>
+          </p>
+          <p style="font-size: 13px; color: #64748b; background-color: #f8fafc; padding: 10px; border-left: 4px solid #3b82f6;">
+            💡 <em>Recommendation: For your account security, we suggest changing your password from your top-right profile menu after signing in (optional).</em>
+          </p>
+        </div>
+      `,
+    };
+
+    try {
+      if (!process.env.SMTP_USER) {
+        this.logger.warn(`SMTP credentials not set. Simulated email to ${data.toEmail}. Password: ${data.initialPassword}`);
+        return;
+      }
+      const info = await this.transporter.sendMail(mailOptions);
+      this.logger.log(`Credentials email sent to ${data.toEmail}. MessageId: ${info.messageId}`);
+    } catch (err) {
+      this.logger.error(`Failed to send email to ${data.toEmail}`, err);
+    }
+  }
+}
+
+B. Backend AuthService (src/core/security/auth.service.ts)
+Implement login, verification, and password change:
+
+login(dto: LoginDto):
+
+Finds user by email.trim().toLowerCase().
+
+If not found or !argon2.verify(user.passwordHash, dto.password), throw UnauthorizedException('Invalid email or password').
+
+If user.isActive === false, throw ForbiddenException('Account has been deactivated. Please contact your Administrator.').
+
+Queries UserStoreAssignment and UserRegionAssignment.
+
+Signs JWT containing { userId: user.id, email: user.email, role: user.role, assignedStoreIds, assignedRegionIds }.
+
+Records LOGIN action in AuditLog.
+
+Returns { accessToken, user: { id, email, fullName, mobileNumber, avatarUrl, role, assignedStoreIds, assignedRegionIds } }.
+
+changePassword(userId: string, dto: ChangePasswordDto):
+
+Reads user. Verifies argon2.verify(user.passwordHash, dto.currentPassword).
+
+Hashes dto.newPassword with argon2 and updates database.
+
+Records CHANGE_PASSWORD in AuditLog.
+
+C. Backend UsersService (src/core/security/users.service.ts)
+Implement Admin user onboarding and scope management:
+
+createUser(dto: CreateUserDto):
+
+Checks if email or mobileNumber already exists (throws ConflictException).
+
+Runs inside prisma.$transaction:
+
+Hashes dto.initialPassword with argon2.
+
+Inserts User record.
+
+If role === 'STORE_MANAGER', inserts rows in UserStoreAssignment for all dto.storeIds.
+
+If role === 'REGIONAL_MANAGER', inserts rows in UserRegionAssignment for all dto.regionIds.
+
+Calls MailService.sendWelcomeCredentials() asynchronously with assigned store/region names and login URL.
+
+Returns created user profile.
+
+updateUser(id: string, dto: UpdateUserDto):
+
+Updates profile details, role, and synchronizes storeAssignments and regionAssignments in a transaction.
+
+resetPassword(id: string, dto: ResetPasswordDto):
+
+Hashes new password and updates user.
+
+If dto.sendEmail === true, emails updated credentials to user via MailService.
+
+import { z } from "zod";
+
+export const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$\%^&*(),.?":{}\vert{}<>]).{8,}$/;
+export const indianMobileRegex = /^[6-9]\d{9}$/;
+
+export const blockInvalidNumberKeys = (e: React.KeyboardEvent<HTMLInputElement>, allowDecimals = true) => {
+  if (["e", "E", "+", "-"].includes(e.key)) {
+    e.preventDefault();
+  }
+  if (!allowDecimals && e.key === ".") {
+    e.preventDefault();
+  }
+};
+
+export const loginSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(1, "Email cannot be empty")
+    .email("Please enter a valid email address"),
+  password: z.string().min(1, "Password cannot be empty"),
+});
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .regex(
+        strongPasswordRegex,
+        "Password must contain at least 1 uppercase letter, 1 lowercase letter, 1 digit, and 1 special character"
+      ),
+    confirmPassword: z.string().min(1, "Please confirm your password"),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "New passwords do not match",
+    path: ["confirmPassword"],
+  })
+  .refine((data) => data.currentPassword !== data.newPassword, {
+    message: "New password cannot be identical to current password",
+    path: ["newPassword"],
+  });
+
+export const adminCreateUserSchema = z
+  .object({
+    fullName: z.string().trim().min(2, "Name must be at least 2 characters").max(100),
+    email: z.string().trim().toLowerCase().min(1, "Email is required").email("Invalid email format"),
+    mobileNumber: z
+      .string()
+      .trim()
+      .transform((val) => val.replace(/[\s\-\+]/g, "").replace(/^91/, "").replace(/^0/, ""))
+      .refine((val) => indianMobileRegex.test(val), "Must be a valid 10-digit Indian mobile number (e.g. 9826012345)"),
+    role: z.enum(["STORE_MANAGER", "REGIONAL_MANAGER", "EXECUTIVE", "ADMIN"]),
+    storeIds: z.array(z.string().uuid()).optional(),
+    regionIds: z.array(z.string().uuid()).optional(),
+    initialPassword: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .regex(strongPasswordRegex, "Must include 1 uppercase, 1 lowercase, 1 number, and 1 special character"),
+    confirmPassword: z.string().min(1, "Please confirm initial password"),
+  })
+  .refine((data) => data.initialPassword === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  })
+  .refine((data) => {
+    if (data.role === "STORE_MANAGER") return data.storeIds && data.storeIds.length > 0;
+    return true;
+  }, {
+    message: "Please assign at least one store for this Store Manager",
+    path: ["storeIds"],
+  })
+  .refine((data) => {
+    if (data.role === "REGIONAL_MANAGER") return data.regionIds && data.regionIds.length > 0;
+    return true;
+  }, {
+    message: "Please assign at least one region for this Regional Manager",
+    path: ["regionIds"],
+  });
+
+E. Frontend Login View (src/modules/auth/LoginView.tsx)
+Form built with useForm + zodResolver(loginSchema).
+
+Input fields:
+
+Work Email: <Input type="email" placeholder="name@retailhub.com" />.
+
+Password: Input wrapped in a relative container with an eye button toggle:
+
+<div className="relative">
+  <Input type={showPassword ? "text" : "password"} {...field} />
+  <button
+    type="button"
+    onClick={() => setShowPassword(!showPassword)}
+    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+  >
+    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+  </button>
+</div>
+
+Submit Button: <StandardButton loading={isSubmitting} className="w-full">Sign In</StandardButton>.
+
+"Forgot Password?" Link: Opens an AlertDialog stating: "Please contact your RetailHub System Administrator to reset your corporate credentials."
+
+Landing Redirect:
+
+Inspects user.role and navigates:
+
+EXECUTIVE / ADMIN -> /dashboard/executive
+
+REGIONAL_MANAGER -> /intelligence/action-center
+
+STORE_MANAGER -> /dashboard/store
+
+F. Admin User Onboarding Modal (CreateEditUserModal.tsx)
+Dynamic Scope Picker:
+
+When watch("role") === "STORE_MANAGER":
+
+Renders multi-select DropSearch for Stores. Must select at least 1 store.
+
+When watch("role") === "REGIONAL_MANAGER":
+
+Renders multi-select DropSearch for Regions. Must select at least 1 region.
+
+When watch("role") === "EXECUTIVE" or "ADMIN":
+
+Displays an info callout: "This role has unrestricted enterprise-wide access across all stores."
+
+Password inputs with Eye toggles for initialPassword and confirmPassword.
+
+Action Button: "Create & Send Credentials (✉️)" (calls POST /api/v1/users, triggers Sonner toast: "Manager onboarded successfully. Credentials emailed.").
+
+Provide full, complete, production-ready source code for each file in the manifest.

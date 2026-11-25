@@ -1,0 +1,153 @@
+# TASK: Generate Chunk B4 — Sales Core, Rolling Velocity Engine & POS Simulation
+Target Stack: Node.js (v20+ LTS), NestJS, TypeScript, Prisma ORM, Microsoft SQL Server.
+Architecture: Modular Monolith inside an enterprise monorepo (`apps/api`).
+Prerequisites: Chunks B1 (Core & Prisma), B2 (Product & Store), and B3 (Inventory & Transfers) are active.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for `SalesModule` and `SimulationModule`. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Import shared services, guards, and DTOs from `@/core` and `@/modules`:
+   - `PrismaService` from `@/core/database/prisma.service`
+   - `ApiResponse`, `PaginatedResponse` from `@/core/common/api-response.dto`
+   - `JwtAuthGuard`, `RolesGuard`, `Roles`, `DataScope`, `DataScopeGuard` from `@/core`
+   - `InventoryService` from `@/modules/inventory/inventory.service`
+3. Quantities & Currency Precision:
+   - All sales quantities MUST use `@db.Decimal(10, 3)`.
+   - All currency values (`unitPrice`, `discount`, `netAmount`, `totalAmount`) MUST use `@db.Decimal(12, 2)`.
+4. Point-in-Time Price Snapshotting:
+   - When a sale is billed, `unitPrice`, `discount`, and `netAmount` must be stored as static numbers on `SalesTransactionLine`. They must NEVER be computed dynamically by joining back to `Product`.
+5. Atomic Inventory Decrement & Negative Stock Policy:
+   - For every billed line, the service MUST atomically decrement `availableQuantity` on `Inventory` and insert an immutable `InventoryMovement` with `movementType = 'POS_SALE'`.
+   - POS checkouts MUST NOT be blocked if shelf stock is low; if stock drops below zero, allow it to record as negative stock and flag the balance accordingly.
+6. Rolling Velocity Engine (`VelocityService`):
+   - Computes rolling Average Daily Sales (ADS): `SUM(quantity) / windowDays`.
+   - Default `windowDays = 30`, but allows passing optional parameter (e.g. 7 or 14 days).
+   - Explicit zero-handling: If total sales in the window is 0 or null, return exactly `0.000` (prevents subsequent division-by-zero errors).
+7. Register both `SalesModule` and `SimulationModule` inside `apps/api/src/app.module.ts`.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/api/src/modules/`:
+1. `sales/dto/create-sale.dto.ts` — Single POS checkout receipt with line items.
+2. `sales/dto/batch-sales.dto.ts` — Bulk checkout array for high-throughput sync.
+3. `sales/dto/sales-query.dto.ts` — Query filters for transactions (dateRange, storeId, productId, pagination).
+4. `sales/dto/sales-summary.dto.ts` — Response DTO for sales revenue and volume aggregations.
+5. `sales/sales.service.ts` — POS transaction ingestion, stock decrement, ledgering, summary reporting.
+6. `sales/velocity.service.ts` — Rolling Average Daily Sales (ADS) calculation.
+7. `sales/sales.controller.ts` — REST endpoints for POS billing, batch sync, queries, summaries, and velocity.
+8. `sales/sales.module.ts` — Exports `SalesService` and `VelocityService`.
+9. `simulation/dto/sales-spike.dto.ts` — Input parameters for simulated stock depletion bursts.
+10. `simulation/simulation.service.ts` — Synthetic sales generator for on-demand testing.
+11. `simulation/simulation.controller.ts` — REST endpoint for triggering sales spikes.
+12. `simulation/simulation.module.ts` — Exports `SimulationService`.
+13. Updated `apps/api/src/app.module.ts` (importing and registering `SalesModule` and `SimulationModule`).
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. Sales Core Module (`src/modules/sales/`)
+
+1. **DTOs**:
+   - `CreateSaleLineDto`:
+     - `productId`: UUID string.
+     - `quantity`: number (min 0.001).
+     - `unitPrice`: number (min 0).
+     - `discount`: optional number (default 0.00).
+     - `netAmount`: number (min 0).
+   - `CreateSaleDto`:
+     - `transactionNumber`: string (unique POS invoice code, e.g. "POS-BPL-20261022-0001").
+     - `storeId`: UUID string.
+     - `transactionDate`: optional ISO Date string (defaults to now).
+     - `customerId`: optional string (phone/loyalty number).
+     - `lines`: array of `CreateSaleLineDto` (min 1 item).
+   - `BatchSalesDto`:
+     - `transactions`: array of `CreateSaleDto` (min 1, max 500).
+   - `SalesQueryDto`:
+     - `page`: optional number (default 1).
+     - `limit`: optional number (default 20).
+     - `storeId`: optional UUID string.
+     - `startDate`: optional ISO Date string.
+     - `endDate`: optional ISO Date string.
+
+2. **`SalesService` (`sales.service.ts`)**:
+   - `createSale(dto: CreateSaleDto)`:
+     - Runs inside `prisma.$transaction`.
+     - Validates unique `transactionNumber` (throws `ConflictException('SALES_DUPLICATE_TX')` if exists).
+     - Computes `totalQuantity = SUM(lines.quantity)` and `totalAmount = SUM(lines.netAmount)`.
+     - Inserts `SalesTransaction` and child `SalesTransactionLine`s.
+     - For each line item:
+       - Finds or lazily creates `Inventory` for `(dto.storeId, line.productId)`.
+       - Decrements `availableQuantity` by `line.quantity`.
+       - Increments `version = version + 1`.
+       - Inserts immutable `InventoryMovement`:
+         `movementType: 'POS_SALE'`,
+         `quantity: -line.quantity`,
+         `referenceType: 'SALES_TRANSACTION'`,
+         `referenceId: transaction.id`,
+         `createdBy: 'POS_TERMINAL'`.
+     - Returns created transaction with lines.
+   - `createBatch(dto: BatchSalesDto)`:
+     - Iterates through `dto.transactions` and executes each sale sequentially or in chunked transactions.
+     - Returns `{ processedCount: number, successfulTxNumbers: string[] }`.
+   - `findAll(query: SalesQueryDto, dataScope?: any)`:
+     - Merges query filters with `dataScope` (Store Managers restricted to their assigned store).
+     - Returns `PaginatedResponse<SalesTransaction>` with line items and product details.
+   - `getSummary(storeId?: string, startDate?: Date, endDate?: Date)`:
+     - Aggregates total revenue, total units sold, total transaction count, and average basket value.
+
+3. **`VelocityService` (`velocity.service.ts`)**:
+   - `getAverageDailySales(storeId: string, productId: string, windowDays: number = 30)`:
+     - Calculates:
+       ```typescript
+       const cutoffDate = new Date();
+       cutoffDate.setDate(cutoffDate.getDate() - windowDays);
+
+       const result = await this.prisma.salesTransactionLine.aggregate({
+         where: {
+           productId,
+           salesTransaction: {
+             storeId,
+             transactionDate: { gte: cutoffDate },
+           },
+         },
+         _sum: { quantity: true },
+       });
+
+       const totalQty = Number(result._sum.quantity || 0);
+       const ads = totalQty / windowDays;
+       return Number(ads.toFixed(3)); // Returns 0.000 if no sales
+       ```
+   - `getStoreVelocityMap(storeId: string, windowDays: number = 30)`:
+     - Returns a Map/Dictionary of `{ [productId]: averageDailySales }` for all products sold in that store over the window, using a single `groupBy` aggregation query on `SalesTransactionLine`.
+
+4. **`SalesController` (`/api/v1/sales`)**:
+   - `POST /api/v1/sales`: Protected by `JwtAuthGuard`. Ingests single POS receipt.
+   - `POST /api/v1/sales/batch`: Protected by `JwtAuthGuard`. Ingests bulk receipts.
+   - `GET /api/v1/sales`: Protected by `JwtAuthGuard`, `DataScopeGuard` with `@DataScope('store')`.
+   - `GET /api/v1/sales/summary`: Returns aggregate KPIs.
+   - `GET /api/v1/sales/velocity/:productId`: Query parameter `?storeId=&windowDays=30`. Returns ADS velocity.
+
+---
+
+### B. Simulation Module (`src/modules/simulation/`)
+
+1. **DTO (`sales-spike.dto.ts`)**:
+   - `storeId`: UUID string.
+   - `productId`: UUID string.
+   - `unitsToSell`: number (min 1, e.g. 20.000).
+
+2. **`SimulationService` (`simulation.service.ts`)**:
+   - `triggerSalesSpike(dto: SalesSpikeDto)`:
+     - Fetches product to read `sellingPrice`.
+     - Generates synthetic `transactionNumber = 'SIM-SPIKE-' + Date.now()`.
+     - Calls `SalesService.createSale` with the specified `unitsToSell`.
+     - Returns synthetic receipt and confirms inventory balance was depleted.
+
+3. **`SimulationController` (`/api/v1/simulation`)**:
+   - `POST /api/v1/simulation/sales-spike`: Protected by `@UseGuards(JwtAuthGuard, RolesGuard)` with `@Roles('ADMIN')`.
+   - Triggers the simulated burst and returns updated store stock.
+
+Provide full, complete, production-ready source code for each file in the manifest.

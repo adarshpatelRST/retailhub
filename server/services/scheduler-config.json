@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "mode": "BOTH",
+  "wavesEnabled": true,
+  "waveHours": [
+    "02:00",
+    "06:00",
+    "14:00"
+  ],
+  "hourlyEnabled": true,
+  "intervalValue": 3,
+  "intervalUnit": "MINUTES",
+  "hourlyIntervalHours": 1,
+  "hourlyIntervalMinutes": 3,
+  "autoExpire": true,
+  "safetyFloorDays": 7,
+  "lastRunAt": "2026-11-24T11:55:09.653Z",
+  "nextIntervalRunAt": 1795521489711
+}

@@ -1,0 +1,161 @@
+# TASK: Generate Chunk B3 — Inventory Core, In-Transit Transfers & Ledgering
+Target Stack: Node.js (v20+ LTS), NestJS, TypeScript, Prisma ORM, Microsoft SQL Server.
+Architecture: Modular Monolith inside an enterprise monorepo (`apps/api`).
+Prerequisites: Chunk B1 (Core Foundation, Prisma schema, Security Guards) and Chunk B2 (Product and Store Core) are active.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for the `InventoryModule`. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Import shared services, guards, and DTOs from `@/core` (established in Chunk B1):
+   - `PrismaService` from `@/core/database/prisma.service`
+   - `ApiResponse`, `PaginatedResponse` from `@/core/common/api-response.dto`
+   - `JwtAuthGuard`, `RolesGuard`, `Roles`, `DataScope`, `DataScopeGuard`, `CurrentUser` from `@/core`
+3. Quantities & Precision: All stock quantities MUST use `Prisma.Decimal` or `Decimal(10, 3)`. Never use native floating-point math for stock balances.
+4. Concurrency Protection (Optimistic Locking):
+   - Every update to the `Inventory` table MUST verify `version` inside an atomic transaction. If `0 rows affected` or version mismatch occurs, throw `ConflictException` with code `INV_CONCURRENCY_CONFLICT`.
+5. Lazy Balance Initialization:
+   - If an `Inventory` balance row does not exist for a given `(storeId, productId)`, the service MUST lazily create it with `availableQuantity: 0.000, version: 1` before performing credits or adjustments.
+6. Immutable Double-Entry Ledger (`InventoryMovement`):
+   - Every single balance mutation (Receipt, Sale, Transfer Out, Transfer In, Write-off, Adjustment) MUST insert a corresponding immutable row in `InventoryMovement`.
+7. Short-Shipment & Damage Handling:
+   - During inward transfer receipt (`receive`), if `receivedQty < approvedQty`, credit `receivedQty` to destination `availableQuantity`, clear the full quantity from source `inTransitQuantity`, and automatically record the shortfall as an `InventoryMovement` with `movementType: 'DAMAGED_WRITE_OFF'`.
+8. Register `InventoryModule` inside `apps/api/src/app.module.ts`.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/api/src/modules/inventory/`:
+1. `dto/adjust-stock.dto.ts` — Manual stock adjustment / cycle count with remarks.
+2. `dto/create-transfer.dto.ts` — Inter-store transfer request with line items.
+3. `dto/dispatch-transfer.dto.ts` — Logistics metadata (carrierName, vehicleNumber, dispatchNoteNumber, estimatedArrival).
+4. `dto/receive-transfer.dto.ts` — Inward receipt scan with line-by-line received quantities.
+5. `dto/inventory-query.dto.ts` — Filter balances by storeId, productId, stock status, pagination.
+6. `dto/inventory-rule.dto.ts` — Min/Max/Reorder Point threshold configuration with effective dates.
+7. `inventory.service.ts` — Balance lookups, optimistic locking updates, ledger records, rule management.
+8. `transfer.service.ts` — 3-step state machine (`PENDING_APPROVAL` -> `APPROVED_IN_TRANSIT` -> `RECEIVED` / `CANCELLED`).
+9. `inventory.controller.ts` — Endpoints for stock balances, ledger history, adjustments, and rules.
+10. `transfer.controller.ts` — Endpoints for transfer lifecycle (create, dispatch, receive, cancel).
+11. `inventory.module.ts` — Exports `InventoryService` and `TransferService`.
+12. Updated `apps/api/src/app.module.ts` (registering `InventoryModule`).
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. DTOs
+1. **`inventory-query.dto.ts`**:
+   - `page`: optional number (default 1).
+   - `limit`: optional number (default 20).
+   - `storeId`: optional UUID string.
+   - `productId`: optional UUID string.
+   - `status`: optional string (`CRITICAL`, `LOW`, `HEALTHY`, `EXCESS`).
+   - `search`: optional string (search by SKU or product name).
+2. **`adjust-stock.dto.ts`**:
+   - `storeId`: UUID string.
+   - `productId`: UUID string.
+   - `quantityDelta`: number (positive for manual count additions, negative for write-offs).
+   - `remarks`: string (e.g. "Physical audit variance", "Broken jar write-off").
+   - `expectedVersion`: number (for optimistic locking).
+3. **`create-transfer.dto.ts`**:
+   - `fromStoreId`: UUID string.
+   - `toStoreId`: UUID string.
+   - `lines`: array of `{ productId: string, requestedQty: number }` (min 1 line).
+4. **`dispatch-transfer.dto.ts`**:
+   - `carrierName`: optional string.
+   - `vehicleNumber`: optional string.
+   - `dispatchNoteNumber`: optional string.
+   - `estimatedArrival`: optional ISO Date string.
+5. **`receive-transfer.dto.ts`**:
+   - `lines`: array of `{ productId: string, receivedQty: number }`.
+   - `remarks`: optional string.
+6. **`inventory-rule.dto.ts`**:
+   - `storeId`: UUID string.
+   - `productId`: UUID string.
+   - `minimumStock`: number.
+   - `maximumStock`: number.
+   - `reorderLevel`: number.
+   - `safetyStock`: number.
+   - `effectiveFrom`: optional ISO Date string (default now).
+   - `effectiveTo`: optional ISO Date string.
+
+---
+
+### B. `InventoryService` (`inventory.service.ts`)
+Implement the following methods:
+1. `findAll(query: InventoryQueryDto, dataScope?: any)`:
+   - Merges query with `dataScope` constraints (Store Managers only see their store).
+   - Joins `product` (with brand/category) and `store`.
+   - Computes stock status dynamically:
+     - `availableQuantity <= 0` -> `CRITICAL`
+     - `availableQuantity <= reorderLevel` -> `LOW`
+     - `availableQuantity > maximumStock` -> `EXCESS`
+     - Otherwise -> `HEALTHY`
+   - Returns `PaginatedResponse<Inventory>`.
+2. `getBalance(storeId: string, productId: string)`:
+   - Fetches balance including `availableQuantity`, `reservedQuantity`, `inTransitQuantity`, `version`.
+   - If not found, lazily creates and returns a zero balance row.
+3. `adjustStock(dto: AdjustStockDto, userId: string)`:
+   - Executes inside `prisma.$transaction`.
+   - Verifies optimistic lock: checks if existing row has `version === dto.expectedVersion`. If not, throws `ConflictException('INV_CONCURRENCY_CONFLICT')`.
+   - Calculates new `availableQuantity = availableQuantity + quantityDelta`. If new balance < 0, throws `BadRequestException('INV_INSUFFICIENT_STOCK')`.
+   - Updates `availableQuantity` and increments `version = version + 1`.
+   - Inserts `InventoryMovement` with `movementType: dto.quantityDelta > 0 ? 'STOCK_ADJUSTMENT' : 'DAMAGED_WRITE_OFF'`, `referenceType: 'MANUAL_ADJUSTMENT'`, `quantity: dto.quantityDelta`, `createdBy: userId`.
+4. `getMovements(storeId: string, productId: string, page = 1, limit = 50)`:
+   - Returns paginated history from `InventoryMovement` sorted by `movementDate DESC`.
+5. `saveRule(dto: InventoryRuleDto)`:
+   - Creates a new `InventoryRule` row enforcing effective-date versioning (SCD Type 2). If an active rule exists, sets its `effectiveTo = now()` before inserting the new rule.
+
+---
+
+### C. `TransferService` (`transfer.service.ts`)
+Implement the complete transfer state machine inside atomic transactions:
+1. `createTransfer(dto: CreateTransferDto, userId: string)`:
+   - Generates unique `transferNumber` (e.g. `TRF-${Date.now().toString().slice(-6)}`).
+   - Inserts `StockTransfer` with `status: 'PENDING_APPROVAL'` and child `StockTransferLine`s.
+2. `dispatchTransfer(transferId: string, dto: DispatchTransferDto, userId: string)`:
+   - Validates transfer exists and is in `PENDING_APPROVAL` status.
+   - Inside `prisma.$transaction`:
+     - For each line, locks and reads source store's `Inventory`:
+       ```typescript
+       // Check available stock >= line.requestedQty
+       // Decrement availableQuantity by line.requestedQty
+       // Increment inTransitQuantity by line.requestedQty
+       // Increment version by 1
+       // Record InventoryMovement: movementType = 'TRANSFER_OUT_DISPATCH'
+       ```
+     - Updates `StockTransfer` status to `APPROVED_IN_TRANSIT`, sets `dispatchedAt = now()`, `approvedBy = userId`, and attaches logistics details (`carrierName`, `vehicleNumber`, etc.).
+3. `receiveTransfer(transferId: string, dto: ReceiveTransferDto, userId: string)`:
+   - Validates transfer is currently in `APPROVED_IN_TRANSIT` status.
+   - Inside `prisma.$transaction`:
+     - For each line:
+       - Decrements source store's `inTransitQuantity` by `line.requestedQty`.
+       - Lazily gets or creates destination store `Inventory`.
+       - Increments destination store `availableQuantity` by `line.receivedQty`.
+       - Records destination `InventoryMovement: movementType = 'TRANSFER_IN_RECEIPT'`.
+       - If `line.receivedQty < line.requestedQty` (Damage/Short-shipment shortfall):
+         - Records discrepancy `InventoryMovement: movementType = 'DAMAGED_WRITE_OFF'`, `quantity: -(requestedQty - receivedQty)`, `remarks: 'In-transit shortfall/damage'`.
+       - Updates `StockTransferLine` with `receivedQty`.
+     - Updates `StockTransfer` status to `RECEIVED`, sets `receivedAt = now()`, `receivedBy = userId`.
+4. `cancelTransfer(transferId: string, userId: string, reason: string)`:
+   - If `PENDING_APPROVAL`: simply marks `status = 'CANCELLED'`.
+   - If `APPROVED_IN_TRANSIT`: reverses source store inventory (decrements `inTransitQuantity`, increments `availableQuantity`, records `STOCK_ADJUSTMENT`), then sets `status = 'CANCELLED'`.
+
+---
+
+### D. Controllers
+1. **`InventoryController`** (`/api/v1/inventory`):
+   - `GET /api/v1/inventory`: Protected by `JwtAuthGuard`, `DataScopeGuard` with `@DataScope('inventory')`.
+   - `GET /api/v1/inventory/:storeId/:productId`: Authenticated.
+   - `GET /api/v1/inventory/:storeId/:productId/movements`: Authenticated.
+   - `POST /api/v1/inventory/adjust`: Protected by `@Roles('STORE_MANAGER', 'ADMIN')`.
+   - `GET /api/v1/inventory-rules` & `POST /api/v1/inventory-rules`: Protected by `@Roles('ADMIN')`.
+2. **`TransferController`** (`/api/v1/transfers`):
+   - `GET /api/v1/transfers`: Scoped by user's assigned stores/regions.
+   - `GET /api/v1/transfers/:id`: Authenticated.
+   - `POST /api/v1/transfers`: Authenticated (`STORE_MANAGER`, `REGIONAL_MANAGER`, `ADMIN`).
+   - `POST /api/v1/transfers/:id/dispatch`: Protected by `@Roles('STORE_MANAGER', 'ADMIN')`.
+   - `POST /api/v1/transfers/:id/receive`: Protected by `@Roles('STORE_MANAGER', 'ADMIN')`.
+   - `POST /api/v1/transfers/:id/cancel`: Protected by `@Roles('STORE_MANAGER', 'REGIONAL_MANAGER', 'ADMIN')`.
+
+Provide full, complete, production-ready source code for each file in the manifest.

@@ -1,0 +1,236 @@
+# TASK: Generate Chunk B6 — Action Center Module & Vendor-Agnostic LangChain AI Service
+Target Stack: Node.js (v20+ LTS), NestJS, TypeScript, Prisma ORM, LangChain, Microsoft SQL Server.
+Architecture: Modular Monolith inside an enterprise monorepo (`apps/api`).
+Prerequisites: Chunks B1 through B5 are active in the project.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for `AiModule` and `ActionCenterModule`. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Import shared services, guards, and DTOs from `@/core` and existing modules:
+   - `PrismaService` from `@/core/database/prisma.service`
+   - `ApiResponse`, `PaginatedResponse` from `@/core/common/api-response.dto`
+   - `JwtAuthGuard`, `RolesGuard`, `Roles`, `DataScope`, `DataScopeGuard`, `CurrentUser` from `@/core`
+   - `CandidateRankingService`, `DoiService`, `RebalanceService` from `@/modules/intelligence`
+   - `TransferService` from `@/modules/inventory/transfer.service`
+3. Vendor-Agnostic LangChain Architecture (`src/modules/ai/`):
+   - Implement `ILlmProvider` interface with `generateNarrative(facts: RebalanceFactsDto): Promise<string>`.
+   - Implement `LangChainProvider` using LangChain Expression Language (LCEL) with `ChatPromptTemplate`, `BaseChatModel`, and `StringOutputParser`.
+   - Dynamically initialize model based on `process.env.LLM_PROVIDER`:
+     - `'GEMINI'` -> `ChatGoogleGenerativeAI` (`@langchain/google-genai`), model: `gemini-1.5-flash`, temperature: 0.2.
+     - `'OPENAI'` -> `ChatOpenAI` (`@langchain/openai`), model: `gpt-4o-mini`, temperature: 0.2.
+   - Implement `TemplateFallbackProvider` providing deterministic, zero-cost text generation if API keys are missing, network is offline, or `LLM_PROVIDER=OFFLINE`.
+   - `AiService` orchestrates generation: checks if `Recommendation.aiExplanation` is already cached in database; if not, invokes provider with a 4-second timeout, catches errors to fallback seamlessly, and caches generated text in DB.
+4. Human-in-the-Loop Governance & Action Workflows (`src/modules/action-center/`):
+   - Single Approval (`POST /api/v1/recommendations/:id/approve`):
+     - Inside `prisma.$transaction`: verifies status is `OPEN` or `MODIFIED`.
+     - If `fromStoreId != null`: creates `StockTransfer` in `APPROVED_IN_TRANSIT`, decrements source `availableQuantity`, increments `inTransitQuantity`, records `TRANSFER_OUT_DISPATCH` movement.
+     - If `fromStoreId == null` (Central Supply fallback): executes direct inward receipt into destination store (`INWARD_RECEIPT`).
+     - Updates `Recommendation.status = 'COMPLETED'`.
+     - Inserts `Action` (`actionType: 'APPROVE'`) and `ActionHistory`.
+   - Batch Approval (`POST /api/v1/recommendations/batch-approve`):
+     - Accepts `{ recommendationIds: string[] }`. Processes each sequentially inside savepoints; returns `{ processedCount, succeededCount, failedCount, failures: [{ id, reason }] }`.
+   - Modify (`POST /api/v1/recommendations/:id/modify`):
+     - Requires mandatory `comments` (min 5 chars).
+     - Allows updating `selectedFromStoreId` and `modifiedQuantity`.
+     - Enforces **Source DOI Protection Constraint**: recalculates donor store's projected post-transfer DOI. If `<= 7.0 days`, throws `BadRequestException` with explicit safety error.
+     - Updates recommendation, sets `status = 'MODIFIED'`, logs `ActionHistory`.
+   - Reject (`POST /api/v1/recommendations/:id/reject`):
+     - Requires mandatory `comments` / `reason` (min 5 chars).
+     - Updates `status = 'REJECTED'`. Logs `ActionHistory`. Zero stock moved.
+   - Store Manager Custom Request (`POST /api/v1/recommendations/store-request`):
+     - Allows Store Manager to request stock for their assigned store. Sets `isManualRequest = true`, `recommendationType = 'MANUAL_STORE_REQUEST'`.
+     - Automatically invokes `CandidateRankingService` to bind Rank 1 donor store and attaches candidate evidence.
+5. Register `AiModule` and `ActionCenterModule` inside `apps/api/src/app.module.ts`.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/api/src/modules/`:
+1. `ai/interfaces/llm-provider.interface.ts` — Common provider interface and injection token.
+2. `ai/dto/rebalance-facts.dto.ts` — Rigid structured facts schema for AI narrative input.
+3. `ai/prompts/rebalance-narrative.prompt.ts` — LangChain `ChatPromptTemplate` with retail analyst persona and guardrails.
+4. `ai/providers/langchain.provider.ts` — LCEL implementation dynamically instantiating Gemini or OpenAI.
+5. `ai/providers/template-fallback.provider.ts` — Deterministic zero-token fallback generator.
+6. `ai/ai.service.ts` — Orchestrator with DB caching into `Recommendation.aiExplanation` and timeout resilience.
+7. `ai/ai.module.ts` — Dynamic module binding active LLM provider.
+8. `action-center/dto/approve-recommendation.dto.ts` — Optional logistics metadata DTO on approval.
+9. `action-center/dto/batch-approve.dto.ts` — Batch approval input and response DTOs.
+10. `action-center/dto/modify-recommendation.dto.ts` — Modified quantity, source store ID, and mandatory comments.
+11. `action-center/dto/reject-recommendation.dto.ts` — Mandatory rejection reason DTO.
+12. `action-center/dto/store-request.dto.ts` — Store Manager manual rebalance request DTO.
+13. `action-center/dto/recommendation-query.dto.ts` — Scoped query filters (priority, status, storeId, pagination).
+14. `action-center/action-center.service.ts` — Approval, batch approval, modify with DOI guard, reject, and audit service.
+15. `action-center/action-center.controller.ts` — REST endpoints for Action Center workflows.
+16. `action-center/action-center.module.ts` — Exports `ActionCenterService`.
+17. Updated `apps/api/src/app.module.ts` (importing and registering `AiModule` and `ActionCenterModule`).
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. AI Module (`src/modules/ai/`)
+
+1. **`llm-provider.interface.ts`**:
+   ```typescript
+   import { RebalanceFactsDto } from '../dto/rebalance-facts.dto';
+   export const LLM_PROVIDER = 'LLM_PROVIDER';
+   export interface ILlmProvider {
+     generateNarrative(facts: RebalanceFactsDto): Promise<string>;
+   }
+
+rebalance-facts.dto.ts:
+Define StoreMetrics (storeName, currentStock, averageDailySales, doi, statusOrRisk) and RebalanceFactsDto (productSku, productName, categoryName, destination, source (nullable), recommendedQuantity, projectedPostDOI, isManualRequest).
+
+rebalance-narrative.prompt.ts:
+Construct LangChain ChatPromptTemplate.fromMessages:
+
+System prompt instructs model as Senior Retail Logistics Analyst.
+
+Enforce strict adherence to input JSON facts; output must be exactly 2-3 concise, professional sentences explaining why the transfer protects destination without compromising source.
+
+langchain.provider.ts:
+
+Implements ILlmProvider.
+
+Inspects process.env.LLM_PROVIDER (default 'GEMINI').
+
+If 'GEMINI', instantiate ChatGoogleGenerativeAI with modelName: process.env.LLM_MODEL_NAME || 'gemini-1.5-flash', apiKey: process.env.GEMINI_API_KEY.
+
+If 'OPENAI', instantiate ChatOpenAI with modelName: process.env.LLM_MODEL_NAME || 'gpt-4o-mini', apiKey: process.env.OPENAI_API_KEY.
+
+Runs REBALANCE_NARRATIVE_PROMPT.pipe(this.model).pipe(new StringOutputParser()).
+
+template-fallback.provider.ts:
+
+Implements ILlmProvider.
+
+Returns deterministic templated narrative if source exists:
+"${dest.storeName} is facing an imminent stock-out with ${dest.doi.toFixed(1)} days of inventory remaining under daily sales of ${dest.averageDailySales.toFixed(1)} units. ${src.storeName} currently holds ${src.currentStock.toFixed(0)} units (${src.doi.toFixed(1)} days DOI) of excess stock. Transferring ${qty.toFixed(0)} units extends ${dest.storeName}'s buffer to ${postDestDOI} days while leaving ${src.storeName} safely protected at ${postSrcDOI} days DOI."
+
+Handles Central Supply fallback if source is null.
+
+ai.service.ts:
+
+getOrGenerateExplanation(recommendationId: string, facts: RebalanceFactsDto):
+
+Checks prisma.recommendation.findUnique for cached aiExplanation. If present, return it immediately.
+
+Calls this.llmProvider.generateNarrative(facts) with Promise.race for a 4000ms timeout.
+
+On error or timeout, falls back to this.fallbackProvider.generateNarrative(facts).
+
+Updates prisma.recommendation.update({ where: { id: recommendationId }, data: { aiExplanation } }).
+
+Returns explanation.
+
+B. Action Center Module (src/modules/action-center/)
+DTOs:
+
+ApproveRecommendationDto: carrierName (optional string), vehicleNumber (optional string), dispatchNoteNumber (optional string), estimatedArrival (optional Date string), comments (optional string).
+
+BatchApproveDto: recommendationIds (array of UUID strings, min 1, max 50).
+
+ModifyRecommendationDto: selectedFromStoreId (UUID string), modifiedQuantity (number, min 0.001), comments (string, min 5 chars, mandatory).
+
+RejectRecommendationDto: reason (string, min 5 chars, mandatory).
+
+StoreRequestDto: productId (UUID string), requestedQuantity (number, min 0.001), reason (string).
+
+RecommendationQueryDto: page (default 1), limit (default 20), storeId (optional UUID), priority (optional HIGH/MEDIUM/LOW), status (optional default 'OPEN').
+
+ActionCenterService (action-center.service.ts):
+
+findAll(query: RecommendationQueryDto, dataScope?: any):
+
+Applies dataScope constraints (Store Managers only see recommendations where storeId equals their assigned store).
+
+Joins product, store (destination), fromStore (source), and evidence.
+
+Orders by priority: 'HIGH' -> 'MEDIUM' -> 'LOW', then createdAt DESC.
+
+findById(id: string):
+
+Returns single recommendation with joined product, stores, evidence, and action history.
+
+getAiExplanation(id: string):
+
+Builds RebalanceFactsDto from recommendation and evidence records.
+
+Calls AiService.getOrGenerateExplanation(id, facts) and returns { explanation: string }.
+
+approve(id: string, dto: ApproveRecommendationDto, user: any):
+
+Runs inside prisma.$transaction:
+
+Checks recommendation exists and status IN ('OPEN', 'MODIFIED').
+
+If fromStoreId != null:
+
+Reads source Inventory row with version. Checks availableQuantity >= recommendedQuantity.
+
+Decrements source availableQuantity, increments inTransitQuantity, increments version.
+
+Inserts InventoryMovement (movementType: 'TRANSFER_OUT_DISPATCH').
+
+Generates StockTransfer with status 'APPROVED_IN_TRANSIT' and logistics details from DTO.
+
+If fromStoreId == null (Central Supply):
+
+Increments destination Inventory.availableQuantity.
+
+Inserts InventoryMovement (movementType: 'INWARD_RECEIPT', referenceType: 'CENTRAL_SUPPLY').
+
+Updates Recommendation: status = 'COMPLETED', stockTransferId = transfer?.id.
+
+Inserts Action (recommendationId: id, actionType: 'APPROVE', actionedBy: user.userId, comments: dto.comments).
+
+Inserts ActionHistory (previousStatus, newStatus: 'COMPLETED', changedBy: user.userId).
+
+batchApprove(dto: BatchApproveDto, user: any):
+
+Iterates through dto.recommendationIds and executes approve for each.
+
+Catches errors per item; returns { processedCount, succeededCount, failedCount, failures }.
+
+modify(id: string, dto: ModifyRecommendationDto, user: any):
+
+Reads donor store Inventory and rolling ADS from VelocityService.
+
+Enforce 7-Day Safety:
+donorPostDOI = (donorAvailableStock - dto.modifiedQuantity) / donorADS.
+If donorPostDOI <= 7.0, throws BadRequestException('Donor store DOI will drop to ' + donorPostDOI.toFixed(1) + ' days, violating 7-day safety threshold.').
+
+Updates Recommendation: fromStoreId = dto.selectedFromStoreId, recommendedQuantity = dto.modifiedQuantity, status = 'MODIFIED'.
+
+Inserts Action (actionType: 'MODIFY') and ActionHistory recording mandatory comments.
+
+reject(id: string, dto: RejectRecommendationDto, user: any):
+
+Updates Recommendation: status = 'REJECTED'.
+
+Inserts Action (actionType: 'REJECT') and ActionHistory recording mandatory reason.
+
+createStoreRequest(dto: StoreRequestDto, user: any):
+
+Creates Recommendation: storeId = user.assignedStoreId, productId = dto.productId, recommendedQuantity = dto.requestedQuantity, isManualRequest = true, requestedByUserId = user.userId, recommendationType = 'MANUAL_STORE_REQUEST'.
+
+Calls CandidateRankingService.findAndRankCandidates to bind Rank 1 donor store to fromStoreId and attaches candidate evidence.
+
+ActionCenterController (action-center.controller.ts):
+
+GET /api/v1/recommendations: Protected by JwtAuthGuard, DataScopeGuard with @DataScope('recommendation').
+
+GET /api/v1/recommendations/:id: Authenticated.
+
+GET /api/v1/recommendations/:id/explain: Authenticated. Triggers Gemini/LangChain narrative generation.
+
+POST /api/v1/recommendations/:id/approve: Protected by @Roles('REGIONAL_MANAGER', 'ADMIN').
+
+POST /api/v1/recommendations/batch-approve: Protected by @Roles('REGIONAL_MANAGER', 'ADMIN').
+
+POST /api/v1/recommendations/:id/modify: Protected by @Roles('REGIONAL_MANAGER', 'ADMIN').
+
+POST /api/v1/recommendations/:id/reject: Protected by @Roles('REGIONAL_MANAGER', 'STORE_MANAGER', 'ADMIN').
+
+POST /api/v1/recommendations/store-request: Protected by @Roles('STORE_MANAGER', 'ADMIN').

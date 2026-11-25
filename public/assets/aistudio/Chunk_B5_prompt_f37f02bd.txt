@@ -1,0 +1,202 @@
+# TASK: Generate Chunk B5 — Intelligence Layer, DOI Math & Candidate Rebalance Engine
+Target Stack: Node.js (v20+ LTS), NestJS, TypeScript, Prisma ORM, Microsoft SQL Server.
+Architecture: Modular Monolith inside an enterprise monorepo (`apps/api`).
+Prerequisites: Chunks B1 (Core & Prisma), B2 (Product & Store), B3 (Inventory & Transfers), and B4 (Sales & Velocity) are active.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for the `IntelligenceModule`. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Import shared services, guards, and DTOs from `@/core` and existing modules:
+   - `PrismaService` from `@/core/database/prisma.service`
+   - `ApiResponse`, `PaginatedResponse` from `@/core/common/api-response.dto`
+   - `JwtAuthGuard`, `RolesGuard`, `Roles`, `DataScope`, `DataScopeGuard`, `CurrentUser` from `@/core`
+   - `VelocityService` from `@/modules/sales/velocity.service`
+   - `InventoryService` from `@/modules/inventory/inventory.service`
+3. Deterministic Days of Inventory (DOI) Formula:
+   - If `ADS > 0`: `DOI = AvailableQuantity / ADS`.
+   - If `ADS == 0` and `AvailableQuantity > 0`: `DOI = 999.0` (Dormant / Dead Stock).
+   - If `AvailableQuantity <= 0`: `DOI = 0.0`.
+4. Risk & Status Classification:
+   - Risk: `HIGH` (DOI <= 3.0), `MEDIUM` (3.0 < DOI <= 7.0), `LOW` (DOI > 7.0).
+   - Status: `CRITICAL` (Stock <= 0), `LOW` (Stock <= ReorderLevel), `EXCESS` (Stock > MaxStock OR DOI > 30.0), `HEALTHY` (normal buffer).
+5. Target Transfer Horizon:
+   - Calculate target units to bring destination to a 14-day operating buffer:
+     `TargetUnits = Math.ceil((14.0 * destADS) - destAvailableStock)`.
+6. Regional Sourcing Boundary & Candidate Ranking:
+   - Sourcing is strictly restricted to stores in the SAME `regionId` as the destination store (`fromStore.regionId == toStore.regionId`).
+   - Donor store eligibility: `AvailableQuantity > MinimumStock` AND `DOI > 30.0 days`.
+   - Source DOI Protection Constraint (Non-negotiable safety floor):
+     `PostTransferDOI = (AvailableQuantity - TransferUnits) / ADS > 7.0 days`.
+     If transferring full target units would drop donor DOI <= 7.0 days, automatically clamp transfer units to:
+     `MaxSafeTransfer = Math.floor(AvailableQuantity - (7.0 * ADS))`.
+   - Suitability Score formula: Normalized `(0.60 * ExcessStockQty) + (0.40 * ExcessDOI)`.
+   - Tie-Breaker Rule: Primary tie-breaker is shortest road distance / proximity (using Haversine formula on store latitude/longitude). Secondary tie-breaker is higher physical available stock.
+7. Central Supply Fallback:
+   - If no store in the region has excess stock, generate a `REORDER` recommendation with `fromStoreId = null` (Central Supply Inward).
+8. Deduplication & Auto-Expiration:
+   - If an active recommendation (`OPEN` or `MODIFIED`) already exists for that store/SKU, update its evidence and live stock/DOI metrics instead of inserting duplicate records.
+   - If a store's stock recovers to `HEALTHY` via inward delivery, automatically update any existing open recommendation to `AUTO_EXPIRED` with audit reason.
+9. Three-Tier Evaluation APIs:
+   - Store-level scan: `POST /api/v1/intelligence/evaluate/store/:storeId` (Accessible by `STORE_MANAGER` for assigned store, `REGIONAL_MANAGER`, `EXECUTIVE`, `ADMIN`).
+   - Region-level scan: `POST /api/v1/intelligence/evaluate/region/:regionId` (Accessible by `REGIONAL_MANAGER` for assigned region, `EXECUTIVE`, `ADMIN`. Forbidden to `STORE_MANAGER`).
+   - Enterprise-level scan: `POST /api/v1/intelligence/evaluate/enterprise` (Strictly `EXECUTIVE` and `ADMIN`. Forbidden to `STORE_MANAGER` and `REGIONAL_MANAGER`).
+10. Scheduled & Event Triggers:
+    - Cron schedule: Every morning at 06:00 AM (`@Cron('0 6 * * *')`).
+    - Expose lightweight single-SKU evaluation method for asynchronous trigger when sales breach reorder thresholds.
+11. Register `IntelligenceModule` and `@nestjs/schedule` `ScheduleModule.forRoot()` inside `apps/api/src/app.module.ts`.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/api/src/modules/intelligence/`:
+1. `dto/evaluation-result.dto.ts` — Summary response DTO of detected risks, refreshed recommendations, and expired recs.
+2. `dto/candidate-store.dto.ts` — Ranked donor store candidate DTO with stock, ADS, DOI, distance, and suitability score.
+3. `dto/anomaly-query.dto.ts` — Query filters for stock anomalies (regionId, storeId, priority, status, pagination).
+4. `services/doi.service.ts` — Mathematical DOI calculation and risk/status tier classification.
+5. `services/candidate-ranking.service.ts` — Regional donor discovery, Haversine distance, suitability scoring, 7-day DOI clamping, and tie-breaking.
+6. `services/rebalance.service.ts` — Main orchestrator: 14-day target horizon, candidate matching, Central Supply fallback, deduplication, auto-expiration, and DB persistence.
+7. `intelligence.controller.ts` — REST endpoints for the 3-tier evaluation APIs, anomaly listings, and candidate queries.
+8. `intelligence.module.ts` — Exports `DoiService`, `CandidateRankingService`, and `RebalanceService`.
+9. Updated `apps/api/src/app.module.ts` (importing and registering `ScheduleModule.forRoot()` and `IntelligenceModule`).
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. DTOs
+1. **`candidate-store.dto.ts`**:
+   - `storeId`: string.
+   - `storeCode`: string.
+   - `storeName`: string.
+   - `availableStock`: number.
+   - `ads`: number.
+   - `currentDOI`: number.
+   - `postTransferDOI`: number.
+   - `maxSafeTransferQty`: number.
+   - `distanceKm`: number.
+   - `suitabilityScore`: number.
+   - `rank`: number.
+2. **`evaluation-result.dto.ts`**:
+   - `evaluatedStores`: number.
+   - `evaluatedSKUs`: number.
+   - `highRiskDetected`: number.
+   - `newRecommendationsCreated`: number.
+   - `existingRecommendationsRefreshed`: number.
+   - `autoExpiredCount`: number.
+   - `timestamp`: string.
+3. **`anomaly-query.dto.ts`**:
+   - `page`: optional number (default 1).
+   - `limit`: optional number (default 20).
+   - `regionId`: optional UUID string.
+   - `storeId`: optional UUID string.
+   - `priority`: optional string (`HIGH`, `MEDIUM`, `LOW`).
+
+---
+
+### B. `DoiService` (`services/doi.service.ts`)
+Implement pure mathematical and classification methods:
+- `calculateDOI(availableQuantity: number, ads: number): number`:
+  - Returns `999.0` if `ads <= 0 && availableQuantity > 0`.
+  - Returns `0.0` if `availableQuantity <= 0`.
+  - Returns `Number((availableQuantity / ads).toFixed(2))`.
+- `classifyRisk(doi: number): 'HIGH' | 'MEDIUM' | 'LOW'`:
+  - `doi <= 3.0` -> `'HIGH'`
+  - `doi > 3.0 && doi <= 7.0` -> `'MEDIUM'`
+  - `doi > 7.0` -> `'LOW'`
+- `classifyStatus(availableQuantity: number, reorderLevel: number, maximumStock: number, doi: number): 'CRITICAL' | 'LOW' | 'HEALTHY' | 'EXCESS'`:
+  - `availableQuantity <= 0` -> `'CRITICAL'`
+  - `availableQuantity <= reorderLevel` -> `'LOW'`
+  - `availableQuantity > maximumStock || doi > 30.0` -> `'EXCESS'`
+  - Otherwise -> `'HEALTHY'`
+
+---
+
+### C. `CandidateRankingService` (`services/candidate-ranking.service.ts`)
+Implement donor discovery and scoring:
+- `calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number`:
+  - Implements standard Haversine formula returning kilometers. If coordinates are missing on either store, returns default distance of `999.0` km.
+- `findAndRankCandidates(destStoreId: string, regionId: string, productId: string, targetUnitsNeeded: number)`:
+  - Queries active stores where `regionId == regionId AND id != destStoreId AND isActive == true`.
+  - For each store:
+    - Reads `Inventory` for `productId`. If stock <= minimumStock, skip.
+    - Gets rolling ADS from `VelocityService`.
+    - Computes `currentDOI = DoiService.calculateDOI(stock, ads)`.
+    - If `currentDOI <= 30.0` (not excess), skip.
+    - **Enforce 7-Day Protection**:
+      - `maxSafeTransfer = Math.floor(availableStock - (7.0 * ads))`.
+      - If `maxSafeTransfer <= 0`, skip.
+      - `transferUnits = Math.min(targetUnitsNeeded, maxSafeTransfer)`.
+      - `postTransferDOI = (availableStock - transferUnits) / ads`.
+    - Computes distance from destination store using Haversine.
+  - Normalizes excess stock qty and excess DOI across pool.
+  - Computes `suitabilityScore = (normQty * 60) + (normDOI * 40)`.
+  - Sorts candidates:
+    1. Primary sort: `suitabilityScore DESC`.
+    2. Primary tie-breaker: `distanceKm ASC` (shortest distance wins).
+    3. Secondary tie-breaker: `availableStock DESC`.
+  - Assigns `rank = 1, 2, 3...` and returns `CandidateStoreDto[]`.
+
+---
+
+### D. `RebalanceService` (`services/rebalance.service.ts`)
+Main orchestrator handling business logic, deduplication, auto-expiration, and DB persistence:
+- `evaluateStore(storeId: string)`:
+  - Fetches store details and all active inventories.
+  - For each inventory record:
+    - Fetches rolling 30-day ADS from `VelocityService`.
+    - Calculates DOI, risk, and status.
+    - **Auto-Expiration Check**:
+      - If status == `'HEALTHY'`, check if an existing recommendation with `storeId == storeId AND productId == productId AND status IN ('OPEN', 'MODIFIED')` exists.
+      - If found, update `status = 'AUTO_EXPIRED'`, `reason = 'Auto-closed: Destination store stock normalized to healthy buffer via inward receipt.'`.
+    - **Stock-Out Rebalance Trigger**:
+      - If risk == `'HIGH'` (DOI <= 3.0):
+        - Compute target units: `targetUnitsNeeded = Math.ceil((14.0 * ads) - availableStock)`. If targetUnitsNeeded <= 0, default to 10.
+        - Call `CandidateRankingService.findAndRankCandidates(...)`.
+        - If candidates exist:
+          - Select `Rank 1` candidate as `fromStoreId`.
+          - Prepare transfer qty: `recommendedQuantity = Math.min(targetUnitsNeeded, candidate.maxSafeTransferQty)`.
+          - Set `recType = 'STOCK_TRANSFER'`.
+          - Prepare evidence array:
+            - `DEST_DOI`: destination DOI
+            - `DEST_STOCK`: current stock
+            - `SRC_DOI`: donor DOI
+            - `SRC_STOCK`: donor stock
+            - `SRC_POST_TRANSFER_DOI`: projected donor DOI
+            - `DISTANCE_KM`: distance between stores
+        - If NO candidates exist in region:
+          - Set `recType = 'REORDER'`, `fromStoreId = null`.
+          - Set `recommendedQuantity = targetUnitsNeeded`.
+          - Prepare evidence: `REASON: 'No regional store holds surplus inventory. Central Supply reorder required.'`
+        - **Deduplication Check**:
+          - Query `Recommendation` for existing record where `storeId == storeId AND productId == productId AND status IN ('OPEN', 'MODIFIED')`.
+          - If exists:
+            - Update existing record: `recommendedQuantity`, `fromStoreId`, `updatedAt = now()`.
+            - Overwrite child `RecommendationEvidence` with refreshed metrics.
+          - If not exists:
+            - Insert new `Recommendation` (generate unique `recommendationNumber = 'REC-' + Date.now().toString().slice(-6))`.
+            - Insert child `RecommendationEvidence` rows.
+  - Returns `EvaluationResultDto`.
+- `evaluateRegion(regionId: string)`: Iterates over all stores in region and aggregates results.
+- `evaluateEnterprise()`: Iterates over all active stores in system and aggregates results.
+- `@Cron('0 6 * * *') handleMorningRebalance()`: Automatically runs `evaluateEnterprise()` every morning at 06:00 AM.
+- `evaluateSingleSku(storeId: string, productId: string)`: Asynchronous method triggered by POS checkout threshold breach.
+
+---
+
+### E. `IntelligenceController` (`intelligence.controller.ts`)
+- `POST /api/v1/intelligence/evaluate/store/:storeId`:
+  - Protected by `JwtAuthGuard`, `DataScopeGuard` with `@DataScope('store')`.
+  - Roles: `STORE_MANAGER`, `REGIONAL_MANAGER`, `EXECUTIVE`, `ADMIN`.
+- `POST /api/v1/intelligence/evaluate/region/:regionId`:
+  - Protected by `JwtAuthGuard`.
+  - Roles: `REGIONAL_MANAGER`, `EXECUTIVE`, `ADMIN` (`STORE_MANAGER` gets 403 Forbidden).
+- `POST /api/v1/intelligence/evaluate/enterprise`:
+  - Protected by `JwtAuthGuard`, `RolesGuard`.
+  - Roles: `EXECUTIVE`, `ADMIN` strictly.
+- `GET /api/v1/intelligence/anomalies`:
+  - Protected by `JwtAuthGuard`, `DataScopeGuard` with `@DataScope('inventory')`. Returns high-risk stock-outs and trapped excess stock.
+- `GET /api/v1/intelligence/candidates/:recommendationId`:
+  - Protected by `JwtAuthGuard`. Returns the ranked candidate donor stores for that recommendation.
+
+Provide full, complete, production-ready source code for each file in the manifest.

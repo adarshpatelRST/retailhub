@@ -1,0 +1,176 @@
+# TASK: Generate Chunk B2 — Product Core & Store Core Modules
+Target Stack: Node.js (v20+ LTS), NestJS, TypeScript, Prisma ORM, Microsoft SQL Server.
+Architecture: Modular Monolith inside an enterprise monorepo (`apps/api`).
+Prerequisite: Chunk B1 (Core Foundation, Prisma schema, and security guards are already in place).
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for `ProductModule` and `StoreModule`. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Import shared services, guards, and DTOs from `@/core` (established in Chunk B1):
+   - `PrismaService` from `@/core/database/prisma.service`
+   - `ApiResponse`, `PaginatedResponse` from `@/core/common/api-response.dto`
+   - `JwtAuthGuard`, `RolesGuard`, `Roles`, `DataScope`, `DataScopeGuard`, `CurrentUser` from `@/core`
+3. Retail Pricing Spread:
+   - Product models must support both `mrp` (Maximum Retail Price) and `sellingPrice` (Store Discounted Price) using `@db.Decimal(12, 2)`.
+4. Enforce Soft-Delete:
+   - Master records (`Product`, `Store`, `Category`, `Brand`) are NEVER hard-deleted via `DELETE FROM`. Delete endpoints MUST update `isActive = false` to preserve historical integrity.
+5. Barcode-First Search:
+   - In product queries, search checks for an exact barcode/productCode match first (for handheld physical barcode scanners) before falling back to partial text matching on product names or SKUs.
+6. Pre-Structured Recursive Category Tree:
+   - `GET /api/v1/categories` must return a nested hierarchical tree (root categories with populated `subCategories: []` children).
+7. Dynamic Geolocation (No Hardcoded Tables):
+   - `latitude` and `longitude` are optional numeric fields on `Store` (`Decimal(9, 6)` or `Float?`) passed dynamically from frontend location permissions, never through hardcoded backend city tables.
+8. Store Directory Access:
+   - Store managers' standard query (`GET /api/v1/stores`) is strictly scoped to their assigned store via `DataScopeGuard`. Provide an additional lightweight `GET /api/v1/stores/network-directory` endpoint allowing store staff to view basic contact info of peer stores in their region without exposing financial metrics.
+9. Register both `ProductModule` and `StoreModule` inside `apps/api/src/app.module.ts`.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/api/src/modules/`:
+1. `product/dto/create-product.dto.ts` — Catalog onboarding validation (SKU, barcode, MRP, selling price, UOM).
+2. `product/dto/update-product.dto.ts` — Partial update DTO with optional `isActive`.
+3. `product/dto/product-query.dto.ts` — Search, category, brand, and pagination filters.
+4. `product/dto/category.dto.ts` — Taxonomy creation and nested tree response interfaces.
+5. `product/dto/brand.dto.ts` — Brand creation DTO.
+6. `product/product.service.ts` — Product CRUD, barcode-first search, category tree builder, soft-delete.
+7. `product/product.controller.ts` — Endpoints: `/api/v1/products`, `/categories`, `/brands`.
+8. `product/product.module.ts` — Exports `ProductService`.
+9. `store/dto/create-store.dto.ts` — Store creation validation (storeCode, region, format, address, optional lat/lng).
+10. `store/dto/update-store.dto.ts` — Partial update DTO with optional `isActive`.
+11. `store/dto/store-query.dto.ts` — Regional filters and status flags.
+12. `store/dto/region.dto.ts` — Operational territory DTO.
+13. `store/store.service.ts` — Store directory, regional scoping, network directory, soft-delete.
+14. `store/store.controller.ts` — Endpoints: `/api/v1/stores`, `/network-directory`, `/regions`.
+15. `store/store.module.ts` — Exports `StoreService`.
+16. Updated `apps/api/src/app.module.ts` (importing and registering `ProductModule` and `StoreModule`).
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. Product Core Module (`src/modules/product/`)
+
+1. **DTOs**:
+   - `CreateProductDto`:
+     - `sku`: string (unique, uppercase e.g. "SKU-1024").
+     - `productCode`: string (unique barcode/EAN-13 e.g. "8901030383742").
+     - `name`: string.
+     - `description`: optional string.
+     - `brandId`: UUID string.
+     - `categoryId`: UUID string.
+     - `unitOfMeasure`: string (enum/string: PIECE, LITRE, KG, PACK).
+     - `costPrice`: number (min 0).
+     - `sellingPrice`: number (min 0).
+     - `mrp`: optional number (min 0; defaults to `sellingPrice` if not supplied).
+   - `UpdateProductDto`: Partial of `CreateProductDto` plus optional `isActive` (boolean).
+   - `ProductQueryDto`:
+     - `page`: optional number (default 1).
+     - `limit`: optional number (default 20).
+     - `search`: optional string.
+     - `categoryId`: optional UUID string.
+     - `brandId`: optional UUID string.
+     - `isActive`: optional boolean (default true).
+   - `CreateCategoryDto`: `code` (string), `name` (string), `parentCategoryId` (optional UUID).
+   - `CreateBrandDto`: `code` (string), `name` (string).
+
+2. **`ProductService` (`product.service.ts`)**:
+   - `create(dto: CreateProductDto)`:
+     - Checks if `sku` or `productCode` already exists. If duplicate, throws `ConflictException('PROD_SKU_EXISTS')` or `ConflictException('PROD_BARCODE_EXISTS')`.
+     - Inserts product with `mrp = dto.mrp ?? dto.sellingPrice`.
+     - Returns created product with brand and category.
+   - `findAll(query: ProductQueryDto)`:
+     - If `query.search` matches an exact barcode (`productCode`), query directly by `productCode`.
+     - Otherwise, search using `OR` on `name contains search` or `sku contains search`.
+     - Applies `categoryId`, `brandId`, and `isActive` filters.
+     - Returns `PaginatedResponse<Product>` with joined `brand` and `category`.
+   - `findById(id: string)`:
+     - Returns product with brand, category, and total stock aggregate across all stores from `Inventory`.
+     - Throws `NotFoundException` if missing.
+   - `update(id: string, dto: UpdateProductDto)`:
+     - Updates product details.
+   - `softDelete(id: string)`:
+     - Executes `prisma.product.update({ where: { id }, data: { isActive: false } })`.
+   - `getCategoriesTree()`:
+     - Queries all active categories.
+     - Builds and returns a recursive JSON tree with top-level root categories containing nested `subCategories: []`.
+   - `createCategory(dto: CreateCategoryDto)`:
+     - Validates parent category existence if provided; inserts category.
+   - `getBrands()`:
+     - Returns all active brands sorted by name.
+   - `createBrand(dto: CreateBrandDto)`:
+     - Validates unique code; inserts brand.
+
+3. **`ProductController` (`/api/v1/products`)**:
+   - `GET /api/v1/products`: Authenticated, query params handled via `ProductQueryDto`.
+   - `GET /api/v1/products/:id`: Authenticated.
+   - `POST /api/v1/products`: Protected by `@UseGuards(JwtAuthGuard, RolesGuard)` with `@Roles('ADMIN')`.
+   - `PUT /api/v1/products/:id`: Protected by `@Roles('ADMIN')`.
+   - `DELETE /api/v1/products/:id`: Protected by `@Roles('ADMIN')` (calls softDelete).
+   - `GET /api/v1/categories` & `POST /api/v1/categories` (POST protected by `@Roles('ADMIN')`).
+   - `GET /api/v1/brands` & `POST /api/v1/brands` (POST protected by `@Roles('ADMIN')`).
+
+---
+
+### B. Store Core Module (`src/modules/store/`)
+
+1. **DTOs**:
+   - `CreateStoreDto`:
+     - `storeCode`: string (unique, uppercase e.g. "BPL-001").
+     - `name`: string (e.g. "Bhopal MP Nagar Store").
+     - `regionId`: UUID string.
+     - `storeTypeId`: UUID string.
+     - `city`: string.
+     - `address`: optional string.
+     - `latitude`: optional number.
+     - `longitude`: optional number.
+     - `openingDate`: string (ISO date format).
+   - `UpdateStoreDto`: Partial of `CreateStoreDto` plus optional `isActive` (boolean).
+   - `StoreQueryDto`:
+     - `regionId`: optional UUID string.
+     - `storeTypeId`: optional UUID string.
+     - `city`: optional string.
+     - `isActive`: optional boolean (default true).
+   - `CreateRegionDto`: `code` (string, e.g. "REG-CENTRAL"), `name` (string).
+
+2. **`StoreService` (`store.service.ts`)**:
+   - `create(dto: CreateStoreDto)`:
+     - Validates unique `storeCode`. Throws `ConflictException('STORE_CODE_EXISTS')` if duplicate.
+     - Inserts store.
+   - `findAll(query: StoreQueryDto, dataScope?: any)`:
+     - Merges `query` with server-side `dataScope` constraints (Store Managers scoped to their store, Regional Managers scoped to their region).
+     - Returns stores with joined `region` and `storeType`.
+   - `getNetworkDirectory(regionId?: string)`:
+     - Returns a lightweight list of stores (`id`, `storeCode`, `name`, `city`, `address`, `phone/mobileNumber` via assigned store managers) without exposing sales or inventory metrics.
+   - `findById(id: string)`:
+     - Returns full store profile. Throws `NotFoundException` if missing.
+   - `update(id: string, dto: UpdateStoreDto)`:
+     - Updates store details.
+   - `softDelete(id: string)`:
+     - Sets `isActive = false`.
+   - `getRegions()`:
+     - Returns active operational regions.
+   - `createRegion(dto: CreateRegionDto)`:
+     - Validates unique code; inserts region.
+   - `getStoreTypes()`:
+     - Returns store types (`HYPERMARKET`, `SUPERMARKET`, `EXPRESS`).
+
+3. **`StoreController` (`/api/v1/stores`)**:
+   - `GET /api/v1/stores`: Protected by `JwtAuthGuard`, `DataScopeGuard` with `@DataScope('store')`.
+   - `GET /api/v1/stores/network-directory`: Protected by `JwtAuthGuard`. Returns peer store directory.
+   - `GET /api/v1/stores/:id`: Authenticated.
+   - `POST /api/v1/stores`: Protected by `@Roles('ADMIN')`.
+   - `PUT /api/v1/stores/:id`: Protected by `@Roles('ADMIN')`.
+   - `DELETE /api/v1/stores/:id`: Protected by `@Roles('ADMIN')`.
+   - `GET /api/v1/regions` & `POST /api/v1/regions` (POST protected by `@Roles('ADMIN')`).
+
+Provide full, complete, production-ready source code for each file in the manifest.
+
+POST /api/v1/products/batch (Protected by @Roles('ADMIN')):
+
+Accepts { products: CreateProductDto[] } (up to 1,000 rows per chunk).
+
+Iterates and runs prisma.product.upsert({ where: { sku: row.sku }, update: { ... }, create: { ... } }).
+
+Returns { totalProcessed, insertedOrUpdated }.

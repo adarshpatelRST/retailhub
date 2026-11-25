@@ -1,0 +1,401 @@
+# TASK: Generate Chunk F1 — RetailHub Modern React Design System, UI Primitives & AppShell
+Target Stack: React 18/19, TypeScript, Vite, Tailwind CSS (ESM / tailwind.config.ts), Radix UI, CVA, Lucide React, Sonner, React Hook Form + Zod.
+Module System: Pure ESM ("type": "module" in modern Node & Vite). No CommonJS require() calls.
+Architecture: Modular Component System inside `apps/web/` conforming to shadcn/ui & enterprise retail standards.
+Domain: Retail Platform (D-Mart / JioMart high-velocity operations model).
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for the core design system and layout shell in `apps/web/`. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Pure ESM & Modern Bundling:
+   - Use standard ESM `import` statements throughout.
+   - Configure `tailwind.config.ts` using `import type { Config } from "tailwindcss"` and `import tailwindAnimate from "tailwindcss-animate"`. Do NOT use `require()`.
+3. Headless Accessibility & Primitives:
+   - Use `@radix-ui/react-*` for unstyled accessible logic (Dialog, AlertDialog, Popover, Slot, Avatar, Select, Checkbox, Switch, Label, Tabs, Separator).
+4. Styling & Variants:
+   - Tailwind CSS with `tailwindcss-animate`.
+   - `class-variance-authority` (CVA) for typed component variants.
+   - `clsx` + `tailwind-merge` in central `src/lib/utils.ts` exporting `cn()`.
+5. Theme & Color Tokens:
+   - Standardized on a high-contrast Light Theme for MVP using semantic CSS tokens (`background`, `foreground`, `primary`, `secondary`, `destructive`, `muted`, `accent`, `border`, `input`, `ring`, `card`, `popover`, `back-button`).
+6. Cross-Browser Icons:
+   - All `lucide-react` icons must include standard SVG attributes (`shrink-0`, `size-4`, explicit dimensions) to prevent layout shifts across Chrome, Safari, Firefox, and Edge.
+7. Responsive Layout:
+   - `AppShell` handles mobile hamburger drawer (< 1024px) and fixed persistent sidebar (>= 1024px).
+   - `PageContent` provides consistent padding: `px-4 sm:px-6 lg:px-8 py-4 sm:py-6`.
+   - Review drawer (`sheet.tsx` / `RH_SideDrawer`) scales to full-width on mobile and 600px on desktop.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/web/`:
+1. `package.json` — Modern Vite + React ESM configuration with all dependencies (`@radix-ui/react-*`, `class-variance-authority`, `clsx`, `tailwind-merge`, `cmdk`, `date-fns`, `react-day-picker`, `sonner`, `recharts`, `lucide-react`, `react-hook-form`, `zod`, `@hookform/resolvers/zod`, `axios`, `@tanstack/react-query`).
+2. `tsconfig.json` & `tsconfig.node.json` — Strict TypeScript Vite config with path aliases `@/*` -> `src/*`.
+3. `vite.config.ts` — Vite config with `@vitejs/plugin-react`, `@` path resolution, and proxy to `http://localhost:3000`.
+4. `postcss.config.js` — ESM PostCSS config with `tailwindcss` and `autoprefixer`.
+5. `tailwind.config.ts` — Typed ESM Tailwind config importing `tailwindAnimate`.
+6. `src/index.css` — Global CSS variables for Light theme.
+7. `src/lib/utils.ts` — `cn()` class-merging helper using `clsx` and `twMerge`.
+8. `src/api/client.ts` — Axios instance with JWT request interceptor and correlationId header.
+9. `src/context/AuthContext.tsx` — Auth session, user profile, tokens, role guards.
+10. `src/context/DataScopeContext.tsx` — Active store/region selector state.
+11. `src/components/ui/button.tsx` — Radix Slot + CVA with `back` variant and `ButtonProps`.
+12. `src/components/ui/StandardButton.tsx` — CVA button with built-in `loading?: boolean` spinner.
+13. `src/components/ui/input.tsx` — Styled input.
+14. `src/components/ui/textarea.tsx` — Styled auto-resizing textarea.
+15. `src/components/ui/label.tsx` — Radix Label.
+16. `src/components/ui/select.tsx` — Radix Select primitives.
+17. `src/components/ui/checkbox.tsx` — Radix Checkbox.
+18. `src/components/ui/switch.tsx` — Radix Switch toggle.
+19. `src/components/ui/form.tsx` — React Hook Form + Zod integration components.
+20. `src/components/ui/DropSearch.tsx` — Searchable combobox (`cmdk` + Popover with `allOption`).
+21. `src/components/ui/date-picker.tsx` — Popover + `react-day-picker` + `date-fns` with year navigation.
+22. `src/components/ui/dialog.tsx` — Radix Dialog with `DialogConfigContext`.
+23. `src/components/ui/alert-dialog.tsx` — Radix AlertDialog for confirmations.
+24. `src/components/ui/sheet.tsx` — Radix Sheet (slide-over review drawer).
+25. `src/components/ui/card.tsx` — Card, CardHeader, CardTitle, CardContent, CardFooter.
+26. `src/components/ui/avatar.tsx` — Radix Avatar with image and initials fallback.
+27. `src/components/ui/sonner.tsx` — Sonner toast provider export.
+28. `src/components/ui/StatusBadge.tsx` — CVA badge with `getStatusVariant()` helper.
+29. `src/components/ui/server-data-table.tsx` — Generic typed grid `<T>` with sort, search, pagination, and multi-row selection.
+30. `src/components/ui/DesignSystem.tsx` — PageContainer, PageContent, PageHeader, LoadingSpinner, LoadingPage, EmptyState, ErrorState, DashboardCard.
+31. `src/components/ui/RH_DOIGauge.tsx` — Visual 4-zone DOI horizontal gauge bar.
+32. `src/components/ui/RH_KPICard.tsx` — Metric card with value, target %, trend arrow, and sparkline.
+33. `src/components/layouts/PageLayout.tsx` — Master route wrapper handling loading, error, header, and children.
+34. `src/components/layouts/RH_Header.tsx` — Scoped Store Switcher (DropSearch), Live Bell, and Avatar.
+35. `src/components/layouts/RH_SideNavigation.tsx` — Collapsible domain-grouped sidebar.
+36. `src/components/layouts/AppShell.tsx` — Master responsive layout container.
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. Core Configuration (ESM / Modern Stack)
+
+1. **`apps/web/package.json`**:
+```json
+{
+  "name": "@retailhub/web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.3.4",
+    "@radix-ui/react-alert-dialog": "^1.0.5",
+    "@radix-ui/react-avatar": "^1.0.4",
+    "@radix-ui/react-checkbox": "^1.0.4",
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-dropdown-menu": "^2.0.6",
+    "@radix-ui/react-label": "^2.0.2",
+    "@radix-ui/react-popover": "^1.0.7",
+    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-separator": "^1.0.3",
+    "@radix-ui/react-slot": "^1.0.2",
+    "@radix-ui/react-switch": "^1.0.3",
+    "@radix-ui/react-tabs": "^1.0.4",
+    "@tanstack/react-query": "^5.28.4",
+    "axios": "^1.6.8",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "cmdk": "^1.0.0",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.363.0",
+    "react": "^18.2.0",
+    "react-day-picker": "^8.10.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.51.1",
+    "react-router-dom": "^6.22.3",
+    "recharts": "^2.12.3",
+    "sonner": "^1.4.41",
+    "tailwind-merge": "^2.2.2",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.6"
+  }
+}
+
+
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import path from "path";
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      "/api": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
+    },
+  },
+});
+
+
+import type { Config } from "tailwindcss";
+import tailwindAnimate from "tailwindcss-animate";
+
+const config: Config = {
+  darkMode: ["class"],
+  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: { "2xl": "1400px" },
+    },
+    extend: {
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        "back-button": {
+          DEFAULT: "hsl(var(--back-button))",
+          foreground: "hsl(var(--back-button-foreground))",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+    },
+  },
+  plugins: [tailwindAnimate],
+};
+
+export default config;
+
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --back-button: 215 20% 65%;
+    --back-button-foreground: 0 0% 100%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+B. Core UI Primitives & Components
+src/components/ui/button.tsx:
+Implement Radix Slot + cva with variants:
+
+variant: default, destructive, outline, secondary, ghost, link, back (bg-back-button text-back-button-foreground hover:bg-back-button/80).
+
+size: default (h-10 px-4 py-2), sm (h-9 px-3), lg (h-11 px-8), icon (h-10 w-10).
+
+Export Button, buttonVariants, and ButtonProps.
+
+src/components/ui/StandardButton.tsx:
+Wrap Button. Add loading?: boolean. When true, display <Loader2 className="h-4 w-4 animate-spin shrink-0" /> and set disabled={true}.
+
+src/components/ui/dialog.tsx:
+Radix Dialog with DialogConfigContext passing contentClassName and contentStyle from root <Dialog> to <DialogContent>. Include DialogOverlay, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription, DialogClose.
+
+src/components/ui/sheet.tsx:
+Radix Dialog configured as a slide-over drawer:
+
+Default side: "right": fixed inset-y-0 right-0 z-50 w-full sm:max-w-[600px] border-l bg-background p-6 shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right.
+
+src/components/ui/DropSearch.tsx:
+Searchable combobox using Popover + Command (cmdk).
+
+Props: items: ComboboxItem[], value: string | null, onChange(val), placeholder, searchPlaceholder, allOption?: { id: string; label: string }, width, disabled.
+
+Supports keyboard arrow navigation, instant filtering, and checkmark icon (Check).
+
+src/components/ui/form.tsx:
+Full React Hook Form wrappers: Form, FormField, FormItem, FormLabel, FormControl, FormDescription, FormMessage.
+
+src/components/ui/StatusBadge.tsx:
+CVA-driven badge. Implement getStatusVariant(status: string) returning:
+
+CRITICAL -> Red (bg-red-50 text-red-700 border-red-200)
+
+LOW -> Amber (bg-amber-50 text-amber-700 border-amber-200)
+
+HEALTHY -> Emerald (bg-emerald-50 text-emerald-700 border-emerald-200)
+
+EXCESS -> Purple (bg-purple-50 text-purple-700 border-purple-200)
+
+APPROVED_IN_TRANSIT -> Blue (bg-blue-50 text-blue-700 border-blue-200)
+
+REJECTED -> Gray (bg-gray-100 text-gray-700 border-gray-200)
+
+src/components/ui/server-data-table.tsx:
+Typed generic data table <T>:
+
+Props: data: T[], columns: ServerColumn<T>[], loading?: boolean, page: number, totalPages: number, onPageChange(page), onSearchChange?: (val) => void, enableSelection?: boolean, selectedIds?: string[], onSelectionChange?: (ids) => void.
+
+Renders search input, sortable column headers with sorting carets, select-all and row-level checkboxes, loading shimmer overlay, and pagination footer (Page X of Y, Previous/Next, Items Per Page).
+
+src/components/ui/RH_DOIGauge.tsx:
+Visual Days of Inventory indicator:
+
+Accepts doi: number, showLabel?: boolean.
+
+Calculates percentage fill and active zone:
+
+<= 3.0d: Red (bg-red-500)
+
+3.1 - 7.0d: Amber (bg-amber-500)
+
+7.1 - 30.0d: Green (bg-emerald-500)
+
+> 30.0d: Purple (bg-purple-500)
+
+Renders mini segmented progress bar with colored status label.
+
+src/components/ui/RH_KPICard.tsx:
+
+Props: title: string, value: string | number, targetComparison?: string, trend?: 'up' | 'down' | 'neutral', trendValue?: string, sparklineData?: number[].
+
+Styled with card shadow, icon slot, and green/red trend badge.
+
+C. Page Layout & Application Shell
+src/components/ui/DesignSystem.tsx:
+
+PageContainer: flex min-h-screen flex-col bg-background.
+
+PageContent: flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-6.
+
+PageHeader: Title, subtitle, optional backButton, actions slot.
+
+LoadingSpinner, LoadingPage: Animated centered loaders.
+
+EmptyState: Centered Lucide icon, title, description, action button.
+
+ErrorState: Alert box with correlation ID and "Try Again" retry button.
+
+DashboardCard: Container with padding variants (none, sm, default, lg).
+
+src/components/layouts/PageLayout.tsx:
+
+Props: title, description, backButton, actions, loading?: boolean, error?: Error | null, onRetry?: () => void, children.
+
+If loading: Renders LoadingPage.
+
+If error: Renders ErrorState with retry.
+
+If ready: Renders PageHeader followed by children.
+
+src/components/layouts/RH_Header.tsx:
+
+Left: Logo & Mobile Hamburger Menu toggle.
+
+Center: Scoped Store Switcher using DropSearch.
+
+STORE_MANAGER: Locked to assigned store.
+
+REGIONAL_MANAGER: Scoped to assigned region stores.
+
+EXECUTIVE / ADMIN: Unrestricted with "All Stores" option.
+
+Right: Live notification bell with unread badge counter, user avatar with role badge.
+
+src/components/layouts/RH_SideNavigation.tsx:
+
+Collapsible desktop sidebar (w-64) and mobile drawer.
+
+Navigation groups:
+
+Operations: Products, Stores, Inventory, Sales.
+
+Intelligence: Automated Insights, Action Center.
+
+Reports: Sales Report, Inventory Report, Store Performance.
+
+Administration: Inventory Rules, Users & Roles.
+
+src/components/layouts/AppShell.tsx:
+
+Assembles RH_Header, RH_SideNavigation, and <Outlet /> (or children) inside a responsive, accessible layout.

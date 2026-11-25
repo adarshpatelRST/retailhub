@@ -1,0 +1,147 @@
+# TASK: Generate Chunk F3 — RetailHub Inventory Health Overview & Movement History Ledger
+Target Stack: React 18/19, TypeScript, Vite, Tailwind CSS, Radix UI, CVA, Lucide React, Sonner, React Hook Form + Zod, TanStack Query v5.
+Architecture: Modular Feature Module in `apps/web/src/modules/operations/inventory/` integrating with Chunk F1's design system.
+Domain: Retail Operations (D-Mart / JioMart high-velocity operations model).
+Prerequisites: Chunks B1 through B7 (Backend APIs) and Chunk F1 (Design System & AppShell) are active.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for Inventory balance views, transfer receiving, movement ledgering, and stock adjustments. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Consume Chunk F1's Design System Components:
+   - `PageLayout` from `@/components/layouts/PageLayout`
+   - `ServerDataTable` from `@/components/ui/server-data-table`
+   - `StatusBadge` from `@/components/ui/StatusBadge`
+   - `RH_DOIGauge` from `@/components/ui/RH_DOIGauge`
+   - `RH_KPICard` from `@/components/ui/RH_KPICard`
+   - `RH_SearchBox` from `@/components/ui/RH_SearchBox`
+   - `StandardButton`, `Button` from `@/components/ui/button`
+   - `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter` from `@/components/ui/dialog`
+   - `Sheet`, `SheetContent`, `SheetHeader`, `SheetTitle` from `@/components/ui/sheet`
+   - `Input` from `@/components/ui/input`, `Label` from `@/components/ui/label`
+   - `Select`, `SelectTrigger`, `SelectContent`, `SelectItem`, `SelectValue` from `@/components/ui/select`
+   - `DropSearch` from `@/components/ui/DropSearch`
+3. Quantities & Precision:
+   - All displayed quantities MUST format to 3 decimal places (e.g., `3.000 Units`, `10.500 KG`).
+4. Inward Receiving Scan (`ReceiveTransferModal.tsx`):
+   - Supports barcode scanning input that matches lines and auto-increments the scanned quantity.
+   - Provides `[ - ]` and `[ + ]` stepper buttons and a direct numeric input for count corrections.
+   - Shortfall & Damage Handling: If `scannedQty < expectedQty`, automatically reveal the "Damaged / Scrapped Units" panel with a mandatory reason dropdown (`"Damaged in Transit / Leaking"`, `"Missing / Short Shipped"`, `"Expired / Unusable"`).
+   - On submission, calls `POST /api/v1/transfers/:id/receive` with `{ lines: [{ productId, receivedQty }] }`.
+5. Movement History Drilldown (`MovementLedgerModal.tsx`):
+   - Implemented strictly as a responsive modal dialog (no full-page navigation needed).
+   - Displays paginated double-entry ledger entries from `InventoryMovement`: timestamp, movement type badge, quantity delta (+ in green, - in red), reference document number, actor/terminal, and remarks.
+6. Cycle Count Manual Adjustment (`AdjustStockModal.tsx`):
+   - Allows store managers to correct physical shelf discrepancies.
+   - Sends `expectedVersion` for optimistic locking protection.
+7. Universal Responsiveness:
+   - Desktop (>= 1024px): Full 8-column data grid with inline `RH_DOIGauge` progress bars and quick action buttons.
+   - Tablet (640px - 1024px): Horizontal scrolling table with sticky right action column; summary cards in a 2x2 grid.
+   - Mobile (< 640px): Table converts into touch-friendly cards (`InventoryCardMobile.tsx`) showing SKU badge, Available vs. In-Transit stock, DOI gauge bar, and status badge. Modals convert to full-height bottom sheets with sticky bottom buttons.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/web/src/`:
+1. `modules/operations/inventory/api/inventory.api.ts` — Typed Axios endpoints for inventory balances, movements, transfers, and adjustments.
+2. `modules/operations/inventory/hooks/useInventory.ts` — TanStack Query hook with debounced search, status/risk filters, and pagination.
+3. `modules/operations/inventory/hooks/useMovements.ts` — Hook fetching paginated double-entry movement ledger for a specific SKU.
+4. `modules/operations/inventory/hooks/useTransfers.ts` — Hook for managing incoming transfer shipments.
+5. `modules/operations/inventory/components/InventorySummaryCards.tsx` — Top KPI cards: Total Valuation, Critical SKUs, Low Stock, Excess Capital.
+6. `modules/operations/inventory/components/InventoryTable.tsx` — `ServerDataTable` with DOI gauges, stock badges, and action triggers.
+7. `modules/operations/inventory/components/InventoryCardMobile.tsx` — Touch-friendly mobile card layout for screen widths < 640px.
+8. `modules/operations/inventory/components/MovementLedgerModal.tsx` — Modal dialog showing the immutable audit history ledger.
+9. `modules/operations/inventory/components/ReceiveTransferModal.tsx` — Inward receiving dialog with barcode scanner, stepper buttons, and damage write-off handling.
+10. `modules/operations/inventory/components/AdjustStockModal.tsx` — Cycle count manual adjustment dialog with optimistic locking version check.
+11. `modules/operations/inventory/InventoryOverviewView.tsx` — Main inventory overview page wrapped in `PageLayout`.
+12. `modules/operations/inventory/TransferShipmentsView.tsx` — Dedicated transfer tracking page with "Receive & Inward Scan" action.
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. API Layer (`src/modules/operations/inventory/api/inventory.api.ts`)
+- `getInventory(params)`: Calls `GET /api/v1/inventory` with filters for `storeId`, `status`, `risk`, `search`, `page`, and `limit`.
+- `getInventoryBalance(storeId, productId)`: Calls `GET /api/v1/inventory/${storeId}/${productId}`.
+- `getMovements(storeId, productId, page = 1, limit = 20)`: Calls `GET /api/v1/inventory/${storeId}/${productId}/movements`.
+- `adjustStock(dto)`: Calls `POST /api/v1/inventory/adjust` with `{ storeId, productId, quantityDelta, remarks, expectedVersion }`.
+- `getTransfers(params)`: Calls `GET /api/v1/transfers` with status and store filters.
+- `receiveTransfer(id, dto)`: Calls `POST /api/v1/transfers/${id}/receive` with `{ lines: [{ productId, receivedQty }], remarks }`.
+
+---
+
+### B. Summary Cards & Top Metrics (`components/InventorySummaryCards.tsx`)
+- Renders 4 responsive cards using `RH_KPICard` / `DashboardCard`:
+  1. **Total Inventory Value**: Calculated as sum of `(availableQuantity * costPrice)`. Formatted in Indian numbering (e.g., ₹18.4 Lakhs or ₹4.82 Cr).
+  2. **Critical / Stock-Out SKUs**: Count of items where stock <= 0. Displayed with a red alert badge.
+  3. **Low Stock SKUs**: Count of items where stock <= reorder level. Displayed with an amber warning badge.
+  4. **Trapped Excess Capital**: Total value of surplus stock exceeding maximum thresholds. Displayed with a purple accent badge.
+
+---
+
+### C. Inward Receiving Scan (`components/ReceiveTransferModal.tsx`)
+- State:
+  - `scannedQuantities`: `Record<string, number>` mapping `productId` to scanned count.
+  - `shortfallReasons`: `Record<string, string>` mapping `productId` to damage reason.
+  - `barcodeInput`: string.
+- Scanning Handler:
+  - Text input for barcode with autofocus and camera/scanner icon.
+  - On Enter / Scan: Matches barcode against line items. If matched, increments `scannedQuantities[item.productId]` by 1. Clears barcode input.
+- Stepper Buttons:
+  - Next to each item: `[ - ]` button (decrements count), direct numeric input, and `[ + ]` button (increments count).
+- Shortfall & Damage Logic:
+  - For any line where `scannedQty < line.requestedQty`:
+    - Shows an amber warning box: `Shortfall: ${(line.requestedQty - scannedQty).toFixed(3)} units`.
+    - Dropdown for reason: `"Damaged in Transit / Leaking"`, `"Missing / Short Shipped from Source"`, `"Expired / Unusable"`.
+- Summary Panel:
+  - Shows green text: `Units to Available Stock: ${totalReceived}`.
+  - Shows red text: `Units to Damaged Write-Off: ${totalShortfall}`.
+- Action: "Confirm Inward Receipt" button (calls `receiveTransfer` API and triggers Sonner success toast).
+
+---
+
+### D. Movement History Ledger Modal (`components/MovementLedgerModal.tsx`)
+- Props: `isOpen: boolean`, `onClose: () => void`, `storeId: string`, `productId: string`, `productName: string`, `sku: string`.
+- Renders responsive dialog (`sm:max-w-3xl`):
+  - Header: Product Name + SKU monospace badge.
+  - Content: Styled table showing:
+    - `Date & Time`: Formatted local timestamp (`dd MMM yyyy, hh:mm a`).
+    - `Movement Type`: CVA badge (`POS_SALE` -> red, `INWARD_RECEIPT` -> green, `TRANSFER_OUT_DISPATCH` -> blue, `TRANSFER_IN_RECEIPT` -> green, `DAMAGED_WRITE_OFF` -> destructive red, `STOCK_ADJUSTMENT` -> gray).
+    - `Quantity Delta`: `+10.000` or `-2.000`.
+    - `Reference`: Document number (Invoice or Transfer ID).
+    - `Actor`: User name or POS terminal.
+    - `Remarks`: Text notes.
+  - Footer: Pagination buttons (Previous / Next) and Close button.
+
+---
+
+### E. Cycle Count Adjustment Modal (`components/AdjustStockModal.tsx`)
+- Props: `isOpen`, `onClose`, `inventoryItem: InventoryRecord`.
+- Displays current recorded stock and current `version`.
+- Input fields:
+  - `Adjustment Type`: "Add Stock" (+ delta) or "Reduce Stock / Write-off" (- delta).
+  - `Quantity Delta`: Number input (`step="0.001"`).
+  - `Projected New Stock`: Auto-calculated live (`Current + Delta`).
+  - `Reason`: Dropdown (`"Physical Count Audit"`, `"Damaged Goods"`, `"Cashier Scan Variance"`, `"Other"`).
+- Sends `expectedVersion = inventoryItem.version`. If conflict occurs (HTTP 409), displays Sonner error: *"Stock was updated by another transaction. Reloading current balance."*
+
+---
+
+### F. Inventory Views
+1. **`InventoryOverviewView.tsx`**:
+   - Uses `PageLayout`.
+   - Renders `InventorySummaryCards` at top.
+   - Filter bar:
+     - Store selector (`DropSearch`, respects user data scope).
+     - Status pills: `All`, `Critical`, `Low Stock`, `Healthy`, `Excess`.
+     - Risk selector: `All Risks`, `High (≤ 3d)`, `Medium (3-7d)`, `Low (> 7d)`.
+     - `RH_SearchBox` for SKU and barcode.
+   - Content:
+     - Desktop/Tablet (>= 640px): `InventoryTable` with columns: SKU/Barcode, Product Name, Available Stock, In-Transit Stock, Daily Sales (ADS), Days of Inventory (rendered via `RH_DOIGauge`), Status (`StatusBadge`), Actions (History button, Adjust button).
+     - Mobile (< 640px): List of `InventoryCardMobile` cards.
+2. **`TransferShipmentsView.tsx`**:
+   - Uses `PageLayout` with title: *"Stock Transfer Consignments"*.
+   - Filter tabs: `Incoming Shipments (In-Transit)` and `Completed Shipments`.
+   - Table displays: Transfer Number, Source Store, Destination Store, Status (`StatusBadge`), Shipped Date, Carrier & Vehicle Number, and Action button: **"Receive & Inward Scan"** (opens `ReceiveTransferModal`).
+
+Provide full, complete, production-ready source code for each file in the manifest.

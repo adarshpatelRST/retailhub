@@ -1,0 +1,526 @@
+# TASK: Generate Chunk B1 — RetailHub Enterprise Monorepo Foundation & Core Infrastructure
+Target Stack: Node.js (v20+ LTS), NestJS, TypeScript, Prisma ORM, Microsoft SQL Server.
+Architecture: Modular Monolith inside an enterprise monorepo (`apps/api`).
+Domain: Retail Platform (D-Mart / JioMart high-velocity operations model).
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript and configuration files for Chunk B1.
+2. Adhere strictly to the provided Microsoft SQL Server Prisma schema with exact field names, data types, indexes, and relations.
+3. All stock and sales quantities MUST use `@db.Decimal(10, 3)`. Currency and price values MUST use `@db.Decimal(12, 2)`.
+4. Enforce strict server-side Data Scoping: Store Managers see only assigned store data, Regional Managers see only assigned regions/stores, and Executives/Admins have enterprise-wide access.
+5. All mutating actions must pass through an Audit Interceptor that automatically strips sensitive fields (`password`, `token`, `secret`, `authorization`) before persisting JSON snapshots to `AuditLog`.
+6. Export all core classes, guards, decorators, and DTOs from `src/core/index.ts` so subsequent modules (Chunks B2–B7) can import them cleanly.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/api/`:
+1. `apps/api/package.json` — All necessary dependencies (`@nestjs/common`, `@nestjs/core`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/swagger`, `@nestjs/terminus`, `@prisma/client`, `argon2`, `class-transformer`, `class-validator`, `passport`, `passport-jwt`, `uuid`) and scripts (`build`, `start:dev`, `prisma:generate`, `prisma:push`, `db:setup`).
+2. `apps/api/tsconfig.json` — Paths configured for `@/core/*` and `@/modules/*`.
+3. `apps/api/prisma/schema.prisma` — Full 21-table database model provided below.
+4. `apps/api/src/core/database/prisma.service.ts` — Prisma client lifecycle with connection retry and graceful shutdown.
+5. `apps/api/src/core/common/api-response.dto.ts` — Standard `ApiResponse<T>` and `PaginatedResponse<T>` wrappers with correlationId and timestamp.
+6. `apps/api/src/core/common/api-error.dto.ts` — Standard `ApiErrorResponse` envelope.
+7. `apps/api/src/core/filters/all-exceptions.filter.ts` — Global exception filter handling HTTP exceptions and Prisma error codes (`P2002`, `P2025`).
+8. `apps/api/src/core/interceptors/transform.interceptor.ts` — Response envelope interceptor adding correlationId and timestamps.
+9. `apps/api/src/core/interceptors/audit.interceptor.ts` — Interceptor that extracts user mutations, strips sensitive keys, and asynchronously writes to `AuditLog`.
+10. `apps/api/src/core/security/roles.decorator.ts` & `roles.guard.ts` — RBAC for Roles: `EXECUTIVE`, `REGIONAL_MANAGER`, `STORE_MANAGER`, `ADMIN`.
+11. `apps/api/src/core/security/current-user.decorator.ts` — Parameter decorator extracting authenticated user from request.
+12. `apps/api/src/core/security/jwt.strategy.ts` & `jwt-auth.guard.ts` — Passport JWT authentication.
+13. `apps/api/src/core/security/data-scope.decorator.ts` & `data-scope.guard.ts` — Server-side data scoping engine injecting store/region Prisma filters into `request.dataScope`.
+14. `apps/api/src/core/health/health.controller.ts` — Terminus health check verifying MS SQL Server connectivity at `GET /api/v1/health`.
+15. `apps/api/src/core/index.ts` — Barrel file exporting all core services, guards, and DTOs.
+16. `apps/api/src/core/core.module.ts` — Global core module exporting PrismaService, security guards, and health check.
+17. `apps/api/src/app.module.ts` — Root application module.
+18. `apps/api/src/main.ts` — NestJS bootstrap with GlobalValidationPipe, Swagger (/api/docs), and Global Interceptors.
+
+---
+
+## 3. PRISMA SCHEMA DEFINITION (`prisma/schema.prisma`)
+
+```prisma
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum RoleType {
+  EXECUTIVE
+  REGIONAL_MANAGER
+  STORE_MANAGER
+  ADMIN
+}
+
+model User {
+  id                String                 @id @default(uuid())
+  email             String                 @unique
+  passwordHash      String
+  fullName          String
+  mobileNumber      String                 @unique
+  avatarUrl         String?                @db.NVarChar(500)
+  role              RoleType
+  isActive          Boolean                @default(true)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  storeAssignments  UserStoreAssignment[]
+  regionAssignments UserRegionAssignment[]
+  actionsTaken      Action[]
+  requestedRecs     Recommendation[]       @relation("RequestedRecs")
+}
+
+model UserStoreAssignment {
+  id        String   @id @default(uuid())
+  userId    String
+  storeId   String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+}
+
+model UserRegionAssignment {
+  id        String   @id @default(uuid())
+  userId    String
+  regionId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  region    Region   @relation(fields: [regionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, regionId])
+}
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  correlationId String
+  userId        String?
+  action        String
+  entityName    String
+  entityId      String
+  oldValues     String?  @db.NVarChar(Max)
+  newValues     String?  @db.NVarChar(Max)
+  ipAddress     String?
+  timestamp     DateTime @default(now())
+
+  @@index([entityName, entityId])
+  @@index([correlationId])
+}
+
+model Category {
+  id               String     @id @default(uuid())
+  code             String     @unique
+  name             String
+  parentCategoryId String?
+  parentCategory   Category?  @relation("SubCategories", fields: [parentCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subCategories    Category[] @relation("SubCategories")
+  isActive         Boolean    @default(true)
+  createdAt        DateTime   @default(now())
+  products         Product[]
+}
+
+model Brand {
+  id        String    @id @default(uuid())
+  code      String    @unique
+  name      String
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  sku           String   @unique
+  productCode   String   @unique
+  name          String
+  description   String?  @db.NVarChar(500)
+  brandId       String
+  categoryId    String
+  unitOfMeasure String
+  costPrice     Decimal  @db.Decimal(12, 2)
+  sellingPrice  Decimal  @db.Decimal(12, 2)
+  mrp           Decimal  @db.Decimal(12, 2)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  brand              Brand               @relation(fields: [brandId], references: [id])
+  category           Category            @relation(fields: [categoryId], references: [id])
+  inventories        Inventory[]
+  inventoryRules     InventoryRule[]
+  salesLines         SalesTransactionLine[]
+  transferLines      StockTransferLine[]
+  recommendations    Recommendation[]
+
+  @@index([categoryId])
+  @@index([brandId])
+}
+
+model Region {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  stores    Store[]
+  users     UserRegionAssignment[]
+}
+
+model StoreType {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  stores    Store[]
+}
+
+model Store {
+  id          String    @id @default(uuid())
+  storeCode   String    @unique
+  name        String
+  regionId    String
+  storeTypeId String
+  city        String
+  address     String?   @db.NVarChar(300)
+  latitude    Float?                         
+  longitude   Float?
+  openingDate DateTime  @db.Date
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  region              Region                 @relation(fields: [regionId], references: [id])
+  storeType           StoreType              @relation(fields: [storeTypeId], references: [id])
+  inventories         Inventory[]
+  inventoryRules      InventoryRule[]
+  salesTransactions   SalesTransaction[]
+  transfersOutgoing   StockTransfer[]        @relation("SourceStore")
+  transfersIncoming   StockTransfer[]        @relation("DestinationStore")
+  recommendationsAsDest Recommendation[]     @relation("DestStoreRec")
+  recommendationsAsSrc  Recommendation[]     @relation("SourceStoreRec")
+  userAssignments     UserStoreAssignment[]
+
+  @@index([regionId])
+  @@index([city])
+}
+
+model Inventory {
+  id                String   @id @default(uuid())
+  storeId           String
+  productId         String
+  availableQuantity Decimal  @default(0.000) @db.Decimal(10, 3)
+  reservedQuantity  Decimal  @default(0.000) @db.Decimal(10, 3)
+  inTransitQuantity Decimal  @default(0.000) @db.Decimal(10, 3)
+  minimumStock      Decimal  @default(10.000) @db.Decimal(10, 3)
+  maximumStock      Decimal  @default(100.000) @db.Decimal(10, 3)
+  reorderLevel      Decimal  @default(20.000) @db.Decimal(10, 3)
+  version           Int      @default(1)
+  lastUpdatedOn     DateTime @default(now()) @updatedAt
+
+  store             Store    @relation(fields: [storeId], references: [id])
+  product           Product  @relation(fields: [productId], references: [id])
+  movements         InventoryMovement[]
+
+  @@unique([storeId, productId])
+  @@index([productId])
+  @@index([storeId])
+}
+
+model InventoryRule {
+  id           String    @id @default(uuid())
+  storeId      String
+  productId    String
+  minimumStock Decimal   @db.Decimal(10, 3)
+  maximumStock Decimal   @db.Decimal(10, 3)
+  reorderLevel Decimal   @db.Decimal(10, 3)
+  safetyStock  Decimal   @db.Decimal(10, 3)
+  effectiveFrom DateTime @default(now())
+  effectiveTo   DateTime?
+  isActive     Boolean   @default(true)
+  version      Int       @default(1)
+
+  store        Store     @relation(fields: [storeId], references: [id])
+  product      Product   @relation(fields: [productId], references: [id])
+
+  @@index([storeId, productId, isActive])
+}
+
+enum MovementType {
+  INWARD_RECEIPT
+  POS_SALE
+  TRANSFER_OUT_DISPATCH
+  TRANSFER_IN_RECEIPT
+  DAMAGED_WRITE_OFF
+  STOCK_ADJUSTMENT
+}
+
+model InventoryMovement {
+  id            String       @id @default(uuid())
+  inventoryId   String
+  movementType  MovementType
+  quantity      Decimal      @db.Decimal(10, 3)
+  referenceType String
+  referenceId   String
+  remarks       String?      @db.NVarChar(255)
+  createdBy     String
+  movementDate  DateTime     @default(now())
+
+  inventory     Inventory    @relation(fields: [inventoryId], references: [id])
+
+  @@index([inventoryId])
+  @@index([referenceType, referenceId])
+}
+
+enum TransferStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED_IN_TRANSIT
+  RECEIVED
+  REJECTED
+  CANCELLED
+}
+
+model StockTransfer {
+  id                 String          @id @default(uuid())
+  transferNumber     String          @unique
+  fromStoreId        String
+  toStoreId          String
+  status             TransferStatus  @default(PENDING_APPROVAL)
+  carrierName        String?         @db.NVarChar(150)
+  vehicleNumber      String?         @db.NVarChar(50)
+  dispatchNoteNumber String?         @db.NVarChar(50)
+  estimatedArrival   DateTime?
+  dispatchedAt       DateTime?
+  receivedAt         DateTime?
+  requestedBy        String
+  approvedBy         String?
+  receivedBy         String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  fromStore          Store           @relation("SourceStore", fields: [fromStoreId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  toStore            Store           @relation("DestinationStore", fields: [toStoreId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines              StockTransferLine[]
+  recommendation     Recommendation?
+
+  @@index([fromStoreId])
+  @@index([toStoreId])
+  @@index([status])
+}
+
+model StockTransferLine {
+  id              String        @id @default(uuid())
+  stockTransferId String
+  productId       String
+  requestedQty    Decimal       @db.Decimal(10, 3)
+  approvedQty     Decimal?      @db.Decimal(10, 3)
+  receivedQty     Decimal?      @db.Decimal(10, 3)
+
+  stockTransfer   StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  product         Product       @relation(fields: [productId], references: [id])
+
+  @@unique([stockTransferId, productId])
+}
+
+enum RecType {
+  STOCK_OUT
+  LOW_STOCK
+  EXCESS_STOCK
+  REORDER
+  STOCK_TRANSFER
+  MANUAL_STORE_REQUEST
+}
+
+enum PriorityLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum RecStatus {
+  OPEN
+  APPROVED
+  REJECTED
+  MODIFIED
+  COMPLETED
+  AUTO_EXPIRED
+}
+
+model Recommendation {
+  id                   String                   @id @default(uuid())
+  recommendationNumber String                   @unique
+  recommendationType   RecType                  @default(STOCK_TRANSFER)
+  storeId              String
+  productId            String
+  fromStoreId          String?
+  toStoreId            String?
+  recommendedQuantity  Decimal                  @db.Decimal(10, 3)
+  priority             PriorityLevel            @default(HIGH)
+  reason               String                   @db.NVarChar(255)
+  status               RecStatus                @default(OPEN)
+  isManualRequest      Boolean                  @default(false)
+  requestedByUserId    String?
+  aiExplanation        String?                  @db.NVarChar(Max)
+  stockTransferId      String?                  @unique
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  store                Store                    @relation("DestStoreRec", fields: [storeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  fromStore            Store?                   @relation("SourceStoreRec", fields: [fromStoreId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product              Product                  @relation(fields: [productId], references: [id])
+  requestedByUser      User?                    @relation("RequestedRecs", fields: [requestedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stockTransfer        StockTransfer?           @relation(fields: [stockTransferId], references: [id])
+  evidence             RecommendationEvidence[]
+  actions              Action[]
+
+  @@index([storeId, status])
+  @@index([priority])
+  @@index([isManualRequest])
+}
+
+model RecommendationEvidence {
+  id               String         @id @default(uuid())
+  recommendationId String
+  metric           String         @db.NVarChar(50)
+  value            String         @db.NVarChar(50)
+  description      String         @db.NVarChar(255)
+
+  recommendation   Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@index([recommendationId])
+}
+
+model SalesTransaction {
+  id                String                 @id @default(uuid())
+  transactionNumber String                 @unique
+  storeId           String
+  transactionDate   DateTime               @default(now())
+  customerId        String?                @db.NVarChar(50)
+  totalQuantity     Decimal                @db.Decimal(10, 3)
+  totalAmount       Decimal                @db.Decimal(12, 2)
+
+  store             Store                  @relation(fields: [storeId], references: [id])
+  lines             SalesTransactionLine[]
+
+  @@index([storeId, transactionDate])
+}
+
+model SalesTransactionLine {
+  id                 String           @id @default(uuid())
+  salesTransactionId String
+  productId          String
+  quantity           Decimal          @db.Decimal(10, 3)
+  unitPrice          Decimal          @db.Decimal(12, 2)
+  discount           Decimal          @default(0.00) @db.Decimal(12, 2)
+  netAmount          Decimal          @db.Decimal(12, 2)
+
+  salesTransaction   SalesTransaction @relation(fields: [salesTransactionId], references: [id], onDelete: Cascade)
+  product            Product          @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+}
+
+enum ActionType {
+  APPROVE
+  REJECT
+  MODIFY
+}
+
+model Action {
+  id               String         @id @default(uuid())
+  recommendationId String
+  actionType       ActionType
+  actionedBy       String
+  actionedOn       DateTime       @default(now())
+  comments         String?        @db.NVarChar(500)
+
+  recommendation   Recommendation @relation(fields: [recommendationId], references: [id])
+  user             User           @relation(fields: [actionedBy], references: [id])
+  history          ActionHistory[]
+
+  @@index([recommendationId])
+}
+
+model ActionHistory {
+  id             String    @id @default(uuid())
+  actionId       String
+  previousStatus RecStatus
+  newStatus      RecStatus
+  changedBy      String
+  changedOn      DateTime  @default(now())
+  comments       String?   @db.NVarChar(500)
+
+  action         Action    @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([actionId])
+}
+
+
+
+
+
+4. DETAILED IMPLEMENTATION RULES
+Correlation ID & Interceptors:
+
+In TransformInterceptor, read X-Correlation-Id from request headers or generate a UUID v4. Return all successful payload wrapped in ApiResponse<T>.
+
+In AllExceptionsFilter, catch all exceptions, extract or generate correlation ID, log the error stack, and return an HTTP response matching ApiErrorResponse.
+
+Audit Logging:
+
+In AuditInterceptor, inspect mutating HTTP methods (POST, PUT, PATCH, DELETE). Clone the request body, delete sensitive keys (password, token, secret, authorization), and record action, entityName, and newValues into AuditLog via PrismaService.
+
+Data Scoping Guard:
+
+DataScopeGuard inspects req.user.
+
+If STORE_MANAGER, query UserStoreAssignment for user's store IDs and set req.dataScope = { storeId: { in: storeIds } }.
+
+If REGIONAL_MANAGER, query UserRegionAssignment and set req.dataScope = { store: { regionId: { in: regionIds } } }.
+
+If EXECUTIVE or ADMIN, set req.dataScope = {}.
+
+Bootstrap & Swagger:
+
+In src/main.ts, prefix all routes with api/v1.
+
+Enable CORS.
+
+Attach ValidationPipe with { whitelist: true, transform: true }.
+
+Configure Swagger documentation at /api/docs.
+
+Register AllExceptionsFilter and TransformInterceptor globally.
+
+Provide full, complete, production-ready source code for each file in the manifest.
+
+
+"dependencies": {
+    "@langchain/core": "^0.2.0",
+    "@langchain/google-genai": "^0.0.19",
+    "@langchain/openai": "^0.0.28",
+    "@nestjs/cache-manager": "^2.2.2",
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/core": "^10.3.0",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/passport": "^10.0.3",
+    "@nestjs/platform-express": "^10.3.0",
+    "@nestjs/platform-socket.io": "^10.3.0",
+    "@nestjs/schedule": "^4.0.1",
+    "@nestjs/swagger": "^7.3.0",
+    "@nestjs/terminus": "^10.2.0",
+    "@nestjs/websockets": "^10.3.0",
+    "@prisma/client": "^5.14.0",
+    "argon2": "^0.40.1",
+    "cache-manager": "^5.5.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "reflect-metadata": "^0.2.1",
+    "rxjs": "^7.8.1",
+    "socket.io": "^4.7.5",
+    "uuid": "^9.0.1"
+  }

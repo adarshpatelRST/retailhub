@@ -1,0 +1,159 @@
+# TASK: Generate Chunk F2 — RetailHub Operations Views (Product Catalog, SKU Management & Store Hierarchy)
+Target Stack: React 18/19, TypeScript, Vite, Tailwind CSS, Radix UI, CVA, Lucide React, Sonner, React Hook Form + Zod, TanStack Query v5.
+Architecture: Modular Feature Modules in `apps/web/src/modules/operations/` integrating with Chunk F1's UI design system.
+Domain: Retail Operations (D-Mart / JioMart high-velocity operations model).
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for Product and Store management views. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Consume Chunk F1's Reusable Component Library:
+   - `PageLayout` from `@/components/layouts/PageLayout`
+   - `StandardButton`, `Button` from `@/components/ui/button`
+   - `ServerDataTable` from `@/components/ui/server-data-table`
+   - `StatusBadge` from `@/components/ui/StatusBadge`
+   - `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter` from `@/components/ui/dialog`
+   - `Sheet`, `SheetContent`, `SheetHeader`, `SheetTitle` from `@/components/ui/sheet`
+   - `DropSearch` from `@/components/ui/DropSearch`
+   - `Form`, `FormField`, `FormItem`, `FormLabel`, `FormControl`, `FormMessage` from `@/components/ui/form`
+   - `Input` from `@/components/ui/input`, `Label` from `@/components/ui/label`
+3. Single-Box Category Picker with Breadcrumb Drill-Down & Search:
+   - Never render multiple stacked dropdown inputs for categories.
+   - Implement `CategoryTreeCombobox.tsx` inside a single popover:
+     - Instant global search input at top.
+     - Interactive breadcrumb trail header (e.g. `🏠 All > Groceries > Cooking Oils`) allowing 1-click jump-back to any level.
+     - Folder items show sub-item count badge (e.g. `Cooking Oils (14) ➔`).
+     - Arrow key navigation (`ArrowRight` to drill down, `ArrowLeft` to navigate back up).
+     - Selecting a leaf node automatically binds the final `categoryId` to the form.
+4. Client-Side Chunked CSV Bulk Upload ($\le 1,000$ Rows per Batch):
+   - Standard native file input `<input type="file" accept=".csv" />` (no drag-and-drop complexity).
+   - Reads CSV in memory and splits rows into batches of 1,000 items.
+   - Sequentially calls `POST /api/v1/products/batch` with a live progress bar.
+   - Idempotent upsert: backend updates existing SKUs and inserts new SKUs, preventing duplicate key errors on re-upload.
+5. Universal Responsiveness:
+   - Desktop (>= 1024px): Full data tables with sticky actions, 3-column store card grid.
+   - Tablet (640px - 1024px): Horizontal scrolling tables, 2-column store grid.
+   - Mobile (< 640px): Product table converts into responsive cards; filters collapse into a bottom drawer (`Sheet`); modals render as full-height bottom sheets with sticky bottom action buttons (`fixed bottom-0`).
+6. D-Mart Value Pricing Display:
+   - Display both MRP and Store Selling Price:
+     - MRP: Strikethrough text (`text-xs line-through text-muted-foreground`).
+     - Selling Price: Bold accent text (`font-semibold text-primary`).
+7. Dynamic Geolocation for Store Onboarding:
+   - Include a "Get Current Location" button using browser `navigator.geolocation.getCurrentPosition` to populate optional `latitude` and `longitude`.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/web/src/`:
+1. `modules/operations/product/api/product.api.ts` — Typed Axios endpoints for products, categories tree, brands, and batch upload.
+2. `modules/operations/product/hooks/useProducts.ts` — TanStack Query hook with debounced search, category/brand filters, and pagination.
+3. `modules/operations/product/hooks/useCategoriesTree.ts` — Hook fetching recursive category tree.
+4. `modules/operations/product/components/CategoryTreeCombobox.tsx` — Single-box drill-down category picker with breadcrumb trail and search.
+5. `modules/operations/product/components/ProductDetailModal.tsx` — Modal displaying full specifications, pricing spread, and total store inventory count.
+6. `modules/operations/product/components/CreateProductModal.tsx` — Form modal with Zod validation, MRP auto-calculation, and CategoryTreeCombobox.
+7. `modules/operations/product/components/CsvUploadModal.tsx` — Native file input with 1,000-row batch chunking, progress bar, and summary modal.
+8. `modules/operations/product/components/ProductCardMobile.tsx` — Mobile card layout for screen widths < 640px.
+9. `modules/operations/product/ProductListView.tsx` — Main product catalog view wrapped in `PageLayout`.
+10. `modules/operations/store/api/store.api.ts` — Typed Axios endpoints for stores, regions, and network directory.
+11. `modules/operations/store/hooks/useStores.ts` — TanStack Query hook for scoped store directory and peer store lookup.
+12. `modules/operations/store/components/StoreCardGrid.tsx` — Responsive card grid grouped by operational region.
+13. `modules/operations/store/components/StoreDetailModal.tsx` — Store profile dialog with format, address, and manager details.
+14. `modules/operations/store/components/CreateStoreModal.tsx` — Form modal with dynamic geolocation button.
+15. `modules/operations/store/StoreDirectoryView.tsx` — Main store hierarchy view wrapped in `PageLayout`.
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. Product Core Module (`src/modules/operations/product/`)
+
+1. **`api/product.api.ts`**:
+   - `getProducts(params)`: Calls `GET /api/v1/products`.
+   - `getProductById(id)`: Calls `GET /api/v1/products/${id}`.
+   - `createProduct(dto)`: Calls `POST /api/v1/products`.
+   - `updateProduct(id, dto)`: Calls `PUT /api/v1/products/${id}`.
+   - `deleteProduct(id)`: Calls `DELETE /api/v1/products/${id}` (soft-delete).
+   - `getCategoriesTree()`: Calls `GET /api/v1/categories`.
+   - `getBrands()`: Calls `GET /api/v1/brands`.
+   - `uploadBatchProducts(products)`: Calls `POST /api/v1/products/batch`.
+
+2. **`components/CategoryTreeCombobox.tsx`**:
+   - Single Popover (`DropSearch` pattern).
+   - State: `currentPath: CategoryNode[]` (history of drilled categories, starting with `[]`).
+   - Breadcrumb navigation:
+     - Renders `🏠 All` when at root.
+     - When drilled down, renders clickable breadcrumb pills: `🏠 All > Groceries > Cooking Oils`. Clicking any pill jumps directly to that level.
+   - Search input: Searches across all descendants. If searching, flattens matching leaf nodes showing `Leaf Name (Parent > Grandparent)`.
+   - Folder click: If category has `subCategories.length > 0`, pushes node to `currentPath` and renders sub-items with item counter badge `(14) ➔`.
+   - Leaf click: If no subcategories, calls `onSelect(category.id)` and closes popover.
+   - Keyboard: `ArrowRight` drills in, `ArrowLeft` navigates back up.
+
+3. **`components/CreateProductModal.tsx`**:
+   - Zod schema:
+     ```typescript
+     export const createProductSchema = z.object({
+       sku: z.string().min(3).regex(/^[A-Z0-9-]+$/, "Must be uppercase alphanumeric"),
+       productCode: z.string().min(8, "Barcode must be at least 8 digits"),
+       name: z.string().min(2, "Product name is required"),
+       description: z.string().optional(),
+       brandId: z.string().uuid("Please select a brand"),
+       categoryId: z.string().uuid("Please select a category"),
+       unitOfMeasure: z.enum(["PIECE", "LITRE", "KG", "PACK"]),
+       costPrice: z.coerce.number().positive("Cost price must be positive"),
+       sellingPrice: z.coerce.number().positive("Selling price must be positive"),
+       mrp: z.coerce.number().positive("MRP must be positive"),
+     }).refine((data) => data.sellingPrice <= data.mrp, {
+       message: "Store selling price cannot exceed MRP",
+       path: ["sellingPrice"],
+     });
+     ```
+   - Responsive: `sm:max-w-2xl` dialog on desktop; full-height bottom sheet on mobile with sticky bottom buttons (`fixed bottom-0 left-0 right-0 p-4 border-t bg-background flex justify-end gap-2`).
+
+4. **`components/CsvUploadModal.tsx`**:
+   - Clean native file input: `<input type="file" accept=".csv" />`.
+   - "Download Sample CSV Template" button.
+   - When file selected:
+     - Parses CSV headers (`sku,productCode,name,brandCode,categoryCode,unitOfMeasure,costPrice,sellingPrice,mrp`).
+     - Splits into chunks of 1,000 rows.
+     - Iterates through chunks: updates progress bar (`Progress` component: `(currentChunk / totalChunks) * 100`).
+     - Shows final summary: `Total: X, Inserted: Y, Updated/Skipped: Z, Failed: W`.
+
+5. **`ProductListView.tsx`**:
+   - Uses `PageLayout`.
+   - Actions slot: "Import SKUs (CSV)" button (opens `CsvUploadModal`) and "Add Product" button (opens `CreateProductModal`, visible to `ADMIN`).
+   - Filter bar:
+     - `RH_SearchBox` with barcode-first search.
+     - Brand and Category filter dropdowns (`DropSearch`).
+     - On mobile (< 640px), filter bar collapses into a "Filters" button opening a bottom `Sheet`.
+   - Table:
+     - On desktop/tablet (>= 640px): `ServerDataTable` with columns: SKU, Barcode, Product Name, UOM, Pricing (Strikethrough MRP + Bold Selling Price), Total Stock Badge, Status, Actions.
+     - On mobile (< 640px): Renders list of `ProductCardMobile` components.
+
+---
+
+### B. Store Core Module (`src/modules/operations/store/`)
+
+1. **`api/store.api.ts`**:
+   - `getStores(params)`: Calls `GET /api/v1/stores`.
+   - `getStoreNetworkDirectory()`: Calls `GET /api/v1/stores/network-directory`.
+   - `createStore(dto)`: Calls `POST /api/v1/stores`.
+   - `updateStore(id, dto)`: Calls `PUT /api/v1/stores/${id}`.
+   - `getRegions()`: Calls `GET /api/v1/regions`.
+
+2. **`components/CreateStoreModal.tsx`**:
+   - Form inputs: `storeCode` (e.g. "BPL-001"), `name`, `regionId`, `storeTypeId`, `city`, `address`, `openingDate`.
+   - Geolocation helper: "Get Current Location" button. Calls `navigator.geolocation.getCurrentPosition`, sets `latitude` and `longitude` form values, and shows a green success badge: *"Coordinates detected: 23.2599, 77.4126"*.
+
+3. **`components/StoreCardGrid.tsx`**:
+   - Groups stores by `region.name` (e.g., "Central MP Zone", "Malwa Zone").
+   - Responsive grid: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4`.
+   - Card content: Store Code, Store Name, Store Format badge (`HYPERMARKET`, `SUPERMARKET`, `EXPRESS`), City, and link to view local inventory.
+
+4. **`StoreDirectoryView.tsx`**:
+   - Uses `PageLayout`.
+   - Role-based handling:
+     - `STORE_MANAGER`: Highlights assigned store card with a distinct border and displays peer regional stores in read-only directory view.
+     - `REGIONAL_MANAGER` & `EXECUTIVE`: View all regional stores with region filter tabs.
+     - `ADMIN`: Header includes "Onboard Store" action button opening `CreateStoreModal`.
+
+Provide full, complete, production-ready source code for each file in the manifest.

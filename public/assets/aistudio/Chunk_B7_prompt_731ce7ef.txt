@@ -1,0 +1,283 @@
+# TASK: Generate Chunk B7 — Dashboards Aggregations, Real-Time WebSockets & 50-Store Demo Seeder
+Target Stack: Node.js (v20+ LTS), NestJS, TypeScript, Prisma ORM, Socket.io, Microsoft SQL Server.
+Architecture: Modular Monolith inside an enterprise monorepo (`apps/api`).
+Prerequisites: Chunks B1 through B6 are active in the project.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for `DashboardModule`, `EventsModule` (WebSocket Gateway), and the Database Seeder scripts. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Import shared services, guards, and DTOs from `@/core` and existing modules:
+   - `PrismaService` from `@/core/database/prisma.service`
+   - `ApiResponse` from `@/core/common/api-response.dto`
+   - `JwtAuthGuard`, `RolesGuard`, `Roles`, `DataScope`, `DataScopeGuard` from `@/core`
+   - `RebalanceService`, `DoiService` from `@/modules/intelligence`
+3. Executive & Store Dashboard Aggregations (`src/modules/dashboard/`):
+   - Executive Dashboard (`GET /api/v1/dashboards/executive`):
+     - Support `startDate` and `endDate` query parameters (`startDate <= endDate`), defaulting to the last 30 days if omitted.
+     - Aggregate 6 top-row KPIs: Total Sales Revenue, Sales Target Achievement %, Total Inventory Valuation, Stock-Out Alert SKUs count (DOI <= 3.0d), Trapped Excess Capital (surplus stock above maxStock * costPrice), and Open Recommendations count.
+     - Aggregate 5 pre-structured Recharts chart datasets:
+       1. `salesTrend`: Daily sales revenue curve vs. target.
+       2. `inventoryHealthDistribution`: Donut breakdown counts (`healthy`, `low`, `critical`, `excess`).
+       3. `topStockOutProneStores`: Bar chart ranking stores with the most active stock-out alerts.
+       4. `categoryPerformance`: Revenue and margin percentage share by product category.
+       5. `stockOutTrend`: Weekly count of stock-outs prevented by approved transfers vs active alerts.
+     - Generate dynamic Actionable Exception Insights callout cards.
+     - Implement a 60-second in-memory cache using `@nestjs/cache-manager` with sub-20ms load times and an `invalidateCache()` method triggered on stock/transfer mutations.
+   - Store Dashboard (`GET /api/v1/dashboards/store/:storeId`):
+     - Scoped strictly via `DataScopeGuard`.
+     - Returns store sales today vs target, Month-to-Date achievement %, local health breakdown, immediate risk SKUs (< 48 hours DOI), and incoming transfer tracker (`APPROVED_IN_TRANSIT` with carrier/vehicle and ETA).
+4. Real-Time WebSockets Gateway (`src/core/gateway/`):
+   - Implement `EventsGateway` using `@nestjs/websockets` and `socket.io` with CORS enabled.
+   - Handshake authentication: Extract and verify JWT token from `client.handshake.auth.token`. Extract user role and assigned store/region IDs.
+   - Automatically join client to rooms:
+     - `enterprise` (Executives & Admins)
+     - `region_${assignedRegionId}` (Regional Managers)
+     - `store_${assignedStoreId}` (Store Managers)
+   - Expose methods to broadcast:
+     - `emitStockUpdated(storeId, productId, newAvailableStock)`
+     - `emitRecCreated(recommendation)`
+     - `emitRecUpdated(recommendation)`
+   - Handle client heartbeat ping/pong (`pingInterval: 25000`, `pingTimeout: 20000`).
+5. Master Database Seeder & Golden Path Simulator (`src/modules/simulation/seeds/`):
+   - Implement CLI script runner (`npm run db:seed`) and REST endpoint (`POST /api/v1/simulation/seed-demo`).
+   - Support `{ cleanReset: true }` parameter:
+     - Executes a cascading purge in reverse-dependency order: `ActionHistory` -> `Action` -> `RecommendationEvidence` -> `Recommendation` -> `StockTransferLine` -> `StockTransfer` -> `InventoryMovement` -> `SalesTransactionLine` -> `SalesTransaction` -> `InventoryRule` -> `Inventory` -> `AuditLog` -> `Product` -> `Brand` -> `Category` -> `UserStoreAssignment` -> `UserRegionAssignment` -> `Store` -> `StoreType` -> `Region` -> `User`.
+   - Seeder Idempotency Guard: If `cleanReset: false`, check `prisma.store.count() > 0`. If data exists, log a warning and skip seeding to prevent duplicate key errors.
+   - Seed Dataset:
+     - 4 Default Users (admin, executive, central regional manager, bhopal store manager) with argon2 hashed passwords.
+     - 8 Operational Regions (Central MP, Malwa, Mumbai MMR, Pune, Delhi NCR, Bengaluru, Hyderabad, Eastern UP).
+     - 50 Stores distributed across formats (`HYPERMARKET`, `SUPERMARKET`, `EXPRESS`).
+     - 500 SKUs across major categories (Groceries, Edible Oil, Dairy, Staples, Beverages, Household).
+     - 6 Months of historical POS sales using batch insertion (`createMany`).
+     - **The Bhopal-Indore Golden Path Scenario (BRD Section 37)**:
+       - SKU-1024 ("Fortune Sunflower Oil 1L", barcode `8901030383742`, MRP 150, SellingPrice 135, CostPrice 110).
+       - Destination: Bhopal MP Nagar Store (`BPL-001`). Stock = 3.000 units, ADS = 2.100 units/day, DOI = 1.43 days (**HIGH Risk**).
+       - Source: Indore Vijay Nagar Store (`IND-001`). Stock = 55.000 units, ADS = 0.500 units/day, DOI = 110.0 days (**EXCESS**).
+       - Automatically runs `RebalanceService.evaluateStore` for Bhopal so `REC-1001` is live in the Action Center immediately after seeding!
+6. Register `DashboardModule`, `EventsModule`, and `CacheModule.register()` inside `apps/api/src/app.module.ts`.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/api/src/`:
+1. `core/gateway/events.gateway.ts` — Socket.io gateway with JWT handshake auth and room broadcasting.
+2. `core/gateway/events.module.ts` — Global module exporting `EventsGateway`.
+3. `modules/dashboard/dto/dashboard-query.dto.ts` — Query filters for date ranges (`startDate`, `endDate`).
+4. `modules/dashboard/dto/executive-dashboard.dto.ts` — DTO for the 6 KPIs, 5 Recharts datasets, and exception callouts.
+5. `modules/dashboard/dto/store-dashboard.dto.ts` — DTO for store-level sales, health, risks, and incoming transfers.
+6. `modules/dashboard/dashboard.service.ts` — Consolidated SQL aggregations and 60-second in-memory caching.
+7. `modules/dashboard/dashboard.controller.ts` — REST endpoints for executive and store dashboards.
+8. `modules/dashboard/dashboard.module.ts` — Exports `DashboardService`.
+9. `modules/simulation/seeds/master-data.seeder.ts` — Seeds users, regions, 50 stores, 500 SKUs, and 6 months POS transactions.
+10. `modules/simulation/seeds/golden-path.seeder.ts` — Seeds exact Bhopal-Indore SKU-1024 scenario and triggers `REC-1001`.
+11. `modules/simulation/seeds/seeder.service.ts` — Orchestrator with reverse-dependency cascading reset and idempotency check.
+12. `modules/simulation/seeds/seed-runner.ts` — Standalone CLI executable for `npm run db:seed`.
+13. Updated `modules/simulation/simulation.controller.ts` (adding `POST /api/v1/simulation/seed-demo`).
+14. Updated `modules/simulation/simulation.module.ts` (exporting `SeederService`).
+15. Updated `apps/api/src/app.module.ts` (registering `EventsModule`, `DashboardModule`, and `CacheModule.register({ isGlobal: true, ttl: 60000 })`).
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. WebSockets Gateway (`src/core/gateway/events.gateway.ts`)
+```typescript
+import {
+  WebSocketGateway,
+  WebSocketServer,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  SubscribeMessage,
+} from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
+import { Logger } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+
+@WebSocketGateway({
+  cors: { origin: '*' },
+  pingInterval: 25000,
+  pingTimeout: 20000,
+})
+export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer() server: Server;
+  private readonly logger = new Logger(EventsGateway.name);
+
+  constructor(private readonly jwtService: JwtService) {}
+
+  async handleConnection(client: Socket) {
+    try {
+      const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.split(' ')[1];
+      if (!token) {
+        client.disconnect();
+        return;
+      }
+      const payload = this.jwtService.verify(token);
+      client.data.user = payload;
+
+      // Join scoped rooms based on user assignments
+      if (['EXECUTIVE', 'ADMIN'].includes(payload.role)) {
+        client.join('enterprise');
+      }
+      if (payload.assignedRegionId) {
+        client.join(`region_${payload.assignedRegionId}`);
+      }
+      if (payload.assignedStoreId) {
+        client.join(`store_${payload.assignedStoreId}`);
+      }
+
+      this.logger.log(`Client connected: ${client.id} (User: ${payload.userId}, Role: ${payload.role})`);
+    } catch (err) {
+      this.logger.warn(`Unauthorized WebSocket connection attempt: ${err.message}`);
+      client.disconnect();
+    }
+  }
+
+  handleDisconnect(client: Socket) {
+    this.logger.log(`Client disconnected: ${client.id}`);
+  }
+
+  @SubscribeMessage('client_reconnected')
+  handleClientReconnected(client: Socket) {
+    client.emit('sync_state_requested');
+  }
+
+  emitStockUpdated(storeId: string, productId: string, availableQuantity: number) {
+    this.server.to(`store_${storeId}`).to('enterprise').emit('STOCK_UPDATED', {
+      storeId,
+      productId,
+      availableQuantity,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitRecCreated(recommendation: any) {
+    const regionRoom = recommendation.store?.regionId ? `region_${recommendation.store.regionId}` : 'enterprise';
+    this.server.to(regionRoom).to('enterprise').emit('REC_CREATED', {
+      recommendation,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitRecUpdated(recommendation: any) {
+    this.server.emit('REC_UPDATED', {
+      recommendationId: recommendation.id,
+      status: recommendation.status,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
+B. Executive Dashboard Service (src/modules/dashboard/dashboard.service.ts)
+Implement consolidated SQL aggregations and caching:
+
+getExecutiveDashboard(query: DashboardQueryDto):
+
+Cache check: Check cache for key exec_dash_${startDate}_${endDate}. If present, return cached DTO.
+
+Compute date range: startDate (default now - 30 days) to endDate (default now). Validate startDate <= endDate.
+
+KPIs:
+
+totalSales: SUM(totalAmount) from SalesTransaction.
+
+salesTarget: Pre-configured target (e.g. ₹50,000,000).
+
+salesAchievementPercent: (totalSales / salesTarget) * 100.
+
+totalInventoryValue: Join Inventory and Product, calculate SUM(availableQuantity * costPrice).
+
+stockOutSKUsCount: Count of inventory rows where availableQuantity <= reorderLevel or DOI <= 3.0.
+
+trappedExcessCapital: SUM((availableQuantity - maximumStock) * costPrice) where availableQuantity > maximumStock.
+
+openRecommendationsCount: Count from Recommendation where status = 'OPEN'.
+
+Recharts Datasets:
+
+salesTrend: Group by CAST(transactionDate AS DATE) returning daily actual revenue vs daily target.
+
+inventoryHealthDistribution: Calculate count of items in CRITICAL, LOW, HEALTHY, and EXCESS.
+
+topStockOutProneStores: Aggregate stock-out incidents grouped by storeId, joined with store.storeCode and store.name (limit 5).
+
+categoryPerformance: Aggregate sales grouped by Product.categoryId, joined with Category.name.
+
+stockOutTrend: Group prevented vs active stock-outs by week.
+
+Exception Callouts:
+
+Array of dynamic strings (e.g., "Central MP Region has 14 cooking oil SKUs at risk of weekend stock-out.").
+
+Cache result for 60,000ms.
+
+Return ExecutiveDashboardDto.
+
+getStoreDashboard(storeId: string):
+
+Returns store sales today vs target, Month-to-Date achievement %, local health donut counts, top 5 immediate risk items (DOI <= 2.0d), and incoming StockTransfer shipments in APPROVED_IN_TRANSIT.
+
+C. Seeder Service (src/modules/simulation/seeds/seeder.service.ts)
+Implement the cascading reset and seeder runner:
+
+cleanResetDatabase():
+
+Executes cascading purge in reverse-dependency order:
+await this.prisma.$executeRawUnsafe(`
+  DELETE FROM ActionHistory;
+  DELETE FROM [Action];
+  DELETE FROM RecommendationEvidence;
+  DELETE FROM Recommendation;
+  DELETE FROM StockTransferLine;
+  DELETE FROM StockTransfer;
+  DELETE FROM InventoryMovement;
+  DELETE FROM SalesTransactionLine;
+  DELETE FROM SalesTransaction;
+  DELETE FROM InventoryRule;
+  DELETE FROM Inventory;
+  DELETE FROM AuditLog;
+  DELETE FROM Product;
+  DELETE FROM Brand;
+  DELETE FROM Category;
+  DELETE FROM UserStoreAssignment;
+  DELETE FROM UserRegionAssignment;
+  DELETE FROM Store;
+  DELETE FROM StoreType;
+  DELETE FROM Region;
+  DELETE FROM [User];
+`);
+
+seedMasterData():
+
+Seeds 4 Users:
+
+admin@retailhub.com (ADMIN)
+
+executive@retailhub.com (EXECUTIVE)
+
+regional.central@retailhub.com (REGIONAL_MANAGER assigned to Central MP Region)
+
+store.bhopal@retailhub.com (STORE_MANAGER assigned to Bhopal MP Nagar Store)
+
+Seeds 8 Regions, 3 StoreTypes (HYPERMARKET, SUPERMARKET, EXPRESS), 50 Stores with cities/addresses, 10 Categories, 20 Brands, 500 Products.
+
+Seeds 6 months of historical baseline POS transactions using prisma.salesTransaction.createMany.
+
+seedGoldenPath():
+
+Sets Bhopal MP Nagar Store (BPL-001): SKU-1024 stock = 3.000, ADS = 2.100, DOI = 1.43 (HIGH Risk).
+
+Sets Indore Vijay Nagar Store (IND-001): SKU-1024 stock = 55.000, ADS = 0.500, DOI = 110.0 (EXCESS).
+
+Calls RebalanceService.evaluateStore for Bhopal to generate REC-1001 live in the Action Center.
+
+D. Controllers
+DashboardController (/api/v1/dashboards):
+
+GET /api/v1/dashboards/executive: Protected by @UseGuards(JwtAuthGuard, RolesGuard) with @Roles('EXECUTIVE', 'ADMIN'). Accepts ?startDate=&endDate=.
+
+GET /api/v1/dashboards/store/:storeId: Protected by JwtAuthGuard, DataScopeGuard with @DataScope('store').
+
+SimulationController (Updated with Seeder endpoint):
+
+POST /api/v1/simulation/seed-demo: Protected by @Roles('ADMIN'). Body: { cleanReset?: boolean }.

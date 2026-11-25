@@ -1,0 +1,139 @@
+# TASK: Generate Chunk F4 — RetailHub Action Center Views, Side-by-Side Store Comparison & Interactive Review Drawer
+Target Stack: React 18/19, TypeScript, Vite, Tailwind CSS, Radix UI, CVA, Lucide React, Sonner, React Hook Form + Zod, TanStack Query v5.
+Architecture: Modular Feature Module in `apps/web/src/modules/action-center/` integrating with Chunk F1's UI design system.
+Domain: Retail Operations & Intelligence (D-Mart / JioMart high-velocity operations model).
+Prerequisites: Chunks B1 through B7 (Backend APIs) and Chunks F1 through F3 (Frontend Design System & Operations) are active.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for the Action Center module. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Consume Chunk F1's Design System Components:
+   - `PageLayout` from `@/components/layouts/PageLayout`
+   - `ServerDataTable` from `@/components/ui/server-data-table`
+   - `StatusBadge` from `@/components/ui/StatusBadge`
+   - `RH_DOIGauge` from `@/components/ui/RH_DOIGauge`
+   - `RH_SearchBox` from `@/components/ui/RH_SearchBox`
+   - `StandardButton`, `Button` from `@/components/ui/button`
+   - `Sheet`, `SheetContent`, `SheetHeader`, `SheetTitle` from `@/components/ui/sheet`
+   - `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter` from `@/components/ui/dialog`
+   - `AlertDialog`, `AlertDialogContent`, `AlertDialogHeader`, `AlertDialogTitle`, `AlertDialogDescription`, `AlertDialogFooter`, `AlertDialogCancel`, `AlertDialogAction` from `@/components/ui/alert-dialog`
+   - `DropSearch` from `@/components/ui/DropSearch`
+   - `Input` from `@/components/ui/input`, `Textarea` from `@/components/ui/textarea`, `Label` from `@/components/ui/label`
+3. Enhanced Side-by-Side Store Comparison Card (`SideBySideStoreCard.tsx`):
+   - Top Logistics Bar: Displays Route (`Source ➔ Destination`), Road Distance (`190 km`), Est. Transit Time (`~3.5 hrs`), and Total Transfer Valuation (`Qty * CostPrice`).
+   - Destination Column & Source Column side-by-side:
+     - Store Name, Store Code, Format badge (`HYPERMARKET`), Daily Sales Velocity (`ADS`).
+     - Stock Before (`3.000`) -> Transfer Delta (`+10.000` / `-10.000`) -> Stock After (`13.000`).
+     - DOI Before (`1.43d`) -> DOI After (`6.19d`) with dual `RH_DOIGauge` progress bars.
+   - Dynamically recalculates Stock After and DOI After in real time as the manager adjusts quantity or switches candidate source store in the drawer.
+4. Candidate Store Switcher & Live 7-Day DOI Protection (`CandidateStoreSelector.tsx`):
+   - Populates ranked candidate donor stores from `GET /api/v1/intelligence/candidates/:recommendationId` (`Rank 1: Indore (190 km)`, `Rank 2: Jabalpur (320 km)`).
+   - Stepper `[ - ]` and `[ + ]` buttons + numeric input for transfer quantity.
+   - Client-side live safety check: `projectedDonorDOI = (donorAvailableStock - enteredQty) / donorADS`.
+   - If `projectedDonorDOI <= 7.0`, highlight input red, disable Approve/Modify buttons, and render an inline destructive alert: *"Violates 7-day safety floor: Donor store DOI would drop to X days. Max safe transfer is Y units."*
+5. Central Supply Fallback Badge:
+   - When `fromStoreId == null`, display a distinct purple badge: `[🏭 Central Supply / Mother Hub]` in the table and comparison card.
+6. Floating Batch Action Bar (`BatchApproveBar.tsx`):
+   - Appears at bottom of screen when 2 or more rows are selected via checkboxes.
+   - Displays summary: `"X Transfers Selected • Total Y.000 Units • Est. Value ₹Z"`.
+   - Includes "Approve Selected" button opening `AlertDialog` confirmation and calling `POST /api/v1/recommendations/batch-approve`.
+7. Mandatory Audit Comments:
+   - Modifying (`MODIFY`) or Rejecting (`REJECT`) requires a mandatory comment/reason of at least 5 characters.
+8. Store Manager Custom Request (`StoreRequestModal.tsx`):
+   - Allows Store Managers to submit a rebalance need (`productId`, `requestedQuantity`, `reason`) via `POST /api/v1/recommendations/store-request`.
+   - Backend automatically calculates all candidate donor stores and AI explanation so the Regional Manager has everything pre-populated.
+9. Universal Responsiveness:
+   - Desktop (>= 1024px): Full data table with multi-row checkboxes + 600px right slide-over drawer (`sm:max-w-[600px]`).
+   - Tablet (640px - 1024px): Scrollable table + 500px drawer.
+   - Mobile (< 640px): Recommendations table converts into touch-friendly cards (`ActionCenterCardMobile.tsx`); review drawer expands to 100% full-screen width (`w-full`) with sticky bottom action buttons (`fixed bottom-0 left-0 right-0 p-4 border-t bg-background`).
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files inside `apps/web/src/modules/action-center/`:
+1. `api/action-center.api.ts` — Typed Axios endpoints for recommendations, candidates, AI explanation, approve, batch-approve, modify, reject, and store-request.
+2. `hooks/useRecommendations.ts` — TanStack Query hook for recommendations list with priority, status, and store filters.
+3. `hooks/useRecommendationDetail.ts` — Hook fetching single recommendation details, ranked candidates, and AI narrative.
+4. `hooks/useActionMutations.ts` — TanStack Query mutations for approve, batchApprove, modify, reject, and createStoreRequest with cache invalidation and Sonner toasts.
+5. `components/SideBySideStoreCard.tsx` — Visual before/after stock, DOI, and distance comparison card for Destination vs. Source store.
+6. `components/CandidateStoreSelector.tsx` — Ranked donor store dropdown and quantity stepper with live 7-day DOI safety check.
+7. `components/AiNarrativeCard.tsx` — Styled container with sparkle badge displaying the LangChain/Gemini executive briefing.
+8. `components/BatchApproveBar.tsx` — Floating bottom bar for multi-row batch approvals with total units and valuation summary.
+9. `components/ActionCenterDrawer.tsx` — 600px slide-over review drawer assembling the 5 sections and audit history timeline.
+10. `components/StoreRequestModal.tsx` — Form modal for Store Managers to initiate a custom rebalance request.
+11. `components/ActionCenterCardMobile.tsx` — Responsive mobile card layout for screen widths < 640px.
+12. `ActionCenterListView.tsx` — Main Action Center page wrapped in `PageLayout`.
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. API Client (`api/action-center.api.ts`)
+- `getRecommendations(params)`: `GET /api/v1/recommendations`
+- `getRecommendationById(id)`: `GET /api/v1/recommendations/${id}`
+- `getCandidates(recommendationId)`: `GET /api/v1/intelligence/candidates/${recommendationId}`
+- `getAiExplanation(id)`: `GET /api/v1/recommendations/${id}/explain`
+- `approveRecommendation(id, dto)`: `POST /api/v1/recommendations/${id}/approve`
+- `batchApproveRecommendations(ids)`: `POST /api/v1/recommendations/batch-approve`
+- `modifyRecommendation(id, dto)`: `POST /api/v1/recommendations/${id}/modify`
+- `rejectRecommendation(id, dto)`: `POST /api/v1/recommendations/${id}/reject`
+- `createStoreRequest(dto)`: `POST /api/v1/recommendations/store-request`
+
+---
+
+### B. Enhanced Side-by-Side Comparison (`components/SideBySideStoreCard.tsx`)
+- Props:
+  - `destStore`: `{ name, code, format, currentStock, ads, currentDOI }`
+  - `sourceStore`: `{ name, code, format, currentStock, ads, currentDOI, distanceKm } | null`
+  - `transferQty`: `number`
+  - `unitCost`: `number`
+- Calculations:
+  - `destStockAfter = destStore.currentStock + transferQty`
+  - `destDOIAfter = destStore.ads > 0 ? destStockAfter / destStore.ads : 999`
+  - `srcStockAfter = sourceStore ? sourceStore.currentStock - transferQty : 0`
+  - `srcDOIAfter = sourceStore && sourceStore.ads > 0 ? srcStockAfter / sourceStore.ads : 999`
+  - `estTransitHours = sourceStore ? Math.max(0.5, Number((sourceStore.distanceKm / 50).toFixed(1))) : 0`
+  - `transferValue = transferQty * unitCost`
+- Renders top route banner with distance, transit estimate, and ₹ valuation, followed by a 2-column grid (`grid-cols-1 sm:grid-cols-2 gap-4`) with before/after metrics and `RH_DOIGauge` bars. If `sourceStore == null`, renders the `[🏭 Central Supply / Mother Hub]` card in the source column.
+
+---
+
+### C. Candidate Switcher & Safety Guardrail (`components/CandidateStoreSelector.tsx`)
+- Props: `candidates: CandidateStoreDto[]`, `selectedStoreId: string | null`, `onStoreChange(id)`, `quantity: number`, `onQuantityChange(qty)`, `onValidationChange(isValid: boolean)`.
+- Calculates `maxSafeTransfer = Math.floor(selectedCandidate.availableStock - (7.0 * selectedCandidate.ads))`.
+- Calculates `projectedDonorDOI = (selectedCandidate.availableStock - quantity) / selectedCandidate.ads`.
+- If `projectedDonorDOI <= 7.0`:
+  - Calls `onValidationChange(false)`.
+  - Renders destructive red banner: `"Safety Violation: Sourcing ${quantity} units drops ${selectedCandidate.storeName} to ${projectedDonorDOI.toFixed(1)} days DOI (Minimum required is 7.0 days). Maximum safe transfer is ${maxSafeTransfer} units."`
+- Otherwise calls `onValidationChange(true)` and shows green check banner.
+
+---
+
+### D. Slide-Over Review Drawer (`components/ActionCenterDrawer.tsx`)
+- Uses `Sheet` (`side="right"`).
+- Assembles the 5 sections inside a scrollable body (`overflow-y-auto pb-24`):
+  1. **Problem Header**: SKU badge, Product Name, Priority badge, and `Manual Store Request` tag if `isManualRequest === true`.
+  2. **Side-by-Side Store Comparison**: `<SideBySideStoreCard />`.
+  3. **Source & Quantity Configuration**: `<CandidateStoreSelector />` (enabled for `REGIONAL_MANAGER` and `ADMIN`).
+  4. **AI Executive Narrative**: `<AiNarrativeCard />` showing the LangChain/Gemini explanation.
+  5. **Decision & Audit Controls**:
+     - Optional carrier/vehicle collapse panel for direct dispatch metadata.
+     - Mandatory `Textarea` for comments when modifying or rejecting.
+     - Sticky bottom footer with `[Reject]`, `[Modify & Save]`, and `[Approve Transfer]` buttons.
+     - Collapsible Audit History list displaying past `ActionHistory` records (`changedBy`, `previousStatus -> newStatus`, `changedOn`, `comments`).
+
+---
+
+### E. Main List View (`ActionCenterListView.tsx`)
+- Uses `PageLayout`.
+- Header Action:
+  - If `STORE_MANAGER` or `ADMIN`: Renders **"Request Stock Rebalance"** button opening `StoreRequestModal.tsx`.
+  - If `REGIONAL_MANAGER`, `EXECUTIVE`, or `ADMIN`: Renders **"Run Intelligence Scan"** button triggering on-demand evaluation.
+- Filter tabs: `All Open`, `High Priority`, `Store Requests`, `Completed / Rejected`.
+- Desktop/Tablet (>= 640px): Renders `ServerDataTable` with `enableSelection={true}`:
+  - Columns: Rec Number, Priority Badge, Product (Name + SKU), Destination Store (with DOI Before), Source Store (or `[🏭 Central Supply]` badge), Transfer Qty (`.toFixed(3)`), Status Badge, Action (`"Review ➔"`).
+- Mobile (< 640px): Renders list of `ActionCenterCardMobile` components.
+- Renders `<BatchApproveBar />` when `selectedIds.length >= 2`.
+
+Provide full, complete, production-ready source code for each file in the manifest.

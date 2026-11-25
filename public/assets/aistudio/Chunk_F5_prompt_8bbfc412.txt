@@ -1,0 +1,259 @@
+# TASK: Generate Chunk F5 — RetailHub Dashboards, 6 Role-Scoped Reports (PDF/Excel/CSV), Admin CRUD, WebSockets & Router
+Target Stack: React 18/19, TypeScript, Vite, Tailwind CSS, Radix UI, Recharts, Socket.io-client, jspdf + jspdf-autotable, xlsx (SheetJS), TanStack Query v5.
+Architecture: Modular Feature Modules in `apps/web/src/` completing Phase B (Frontend) + lightweight Audit read controller in `apps/api/`.
+Domain: Retail Operations & BI (D-Mart / JioMart high-velocity operations model).
+Prerequisites: Chunks B1 through B7 (Backend) and Chunks F1 through F4 (Frontend Design System, Operations, Inventory, Action Center) are active.
+
+---
+
+## 1. ARCHITECTURAL REQUIREMENTS & CONSTRAINTS
+1. Generate complete, production-grade, compilable TypeScript code for Dashboards, Reports, Admin Console, WebSockets, Export Utilities, and Application Routing. Do NOT use placeholder comments, incomplete stubs, or ellipses.
+2. Pure ESM & Package Additions:
+   - Include `socket.io-client`, `jspdf`, `jspdf-autotable`, and `xlsx` in `apps/web/package.json`.
+   - Use standard ESM `import` syntax throughout.
+3. Generic Schema-Driven Export Engine (`src/lib/export-utils.ts` & `<ReportExportBar<T> />`):
+   - Define `ExportColumnDef<T> { header: string; accessor: keyof T | ((row: T) => string | number) }`.
+   - Support 3 export formats for any report's dynamic columns:
+     1. **PDF (`.pdf`)** using `jspdf` + `jspdf-autotable`: Vector multi-page table with RetailHub title header, active filter subtitle, repeating column headers across page breaks, and `Page X of Y` footers.
+     2. **Excel (`.xlsx`)** using `xlsx` (SheetJS): Native workbook with auto-fitted column widths.
+     3. **CSV (`.csv`)** using `xlsx` (SheetJS): Standard UTF-8 comma-separated export.
+4. Role-Scoped Reports Module (6 Official Reports):
+   - Accessible to all 4 roles, with filter controls strictly enforcing operational authority:
+     - `STORE_MANAGER`: Store selector is locked to their assigned store; Region selector is hidden.
+     - `REGIONAL_MANAGER`: Region selector is locked to their assigned region; Store dropdown allows selecting `"All Stores in Region"` or any single store within that region.
+     - `EXECUTIVE` & `ADMIN`: Unrestricted selectors for `"All Enterprise"`, any Region, or any Store.
+   - Implement all 6 reports:
+     1. **Sales Report** (`/reports/sales`)
+     2. **Inventory Health Report** (`/reports/inventory`)
+     3. **Store Performance Report** (`/reports/store-performance`)
+     4. **Recommendation & Rebalance Report** (`/reports/recommendations`)
+     5. **SKU / Product Performance Report** (`/reports/products`) — 16 columns covering Identity (SKU, Barcode, Name, Category, Brand, UOM), Pricing & Margin (Cost, MRP, Selling Price, Unit Margin ₹ & %), Scoped Stock Position (Available, In-Transit, Stock Valuation ₹), and Scoped Sales & Velocity (Units Sold, Net Revenue ₹, ADS, DOI & Status Badge, Velocity Tier: `FAST_MOVING`, `MODERATE`, `SLOW_MOVING`, `DEAD_STOCK`).
+     6. **Audit Report** (`/reports/audit`) — Scoped audit trail displaying Timestamp, Correlation ID, Actor + Role, Store/Region Scope, Action Performed, Entity & Reference, Change Summary (`Before ➔ After` with a button to open a Side-by-Side JSON Diff Modal), and Remarks.
+5. Dynamic User & Store Authority Management (`UserManagementView.tsx`):
+   - No user's role or store assignment is hardcoded or permanent.
+   - Admin has full CRUD to onboard users, dynamically switch roles (`STORE_MANAGER`, `REGIONAL_MANAGER`, `EXECUTIVE`, `ADMIN`), and assign/reassign stores (`UserStoreAssignment`) or regions (`UserRegionAssignment`) at any time.
+6. Zero-Dependency Isolation for `DemoControlWidget.tsx`:
+   - Encapsulate all demo simulation controls ("Trigger POS Sales Spike" & "Reset Golden Path Demo Data") in `src/modules/dashboard/components/DemoControlWidget.tsx`.
+   - Zero reverse dependencies: no other module imports from this file.
+   - Render in `RH_Header.tsx` strictly behind `{import.meta.env.VITE_ENABLE_DEMO_WIDGET === 'true' && <DemoControlWidget />}` so it can be disabled via `.env` or removed in 1 line.
+7. Universal Responsiveness:
+   - Desktop (>= 1024px): 6-column KPI grid, 12-column Bento chart grid, full report tables.
+   - Tablet (640px - 1024px): 2/3-column KPI grid, stacked responsive SVG charts (`ResponsiveContainer`), horizontal scroll tables.
+   - Mobile (< 640px): Single-column KPI stack, compact chart aspect ratios, collapsible filter drawer (`Sheet`), mobile card views.
+
+---
+
+## 2. FILE MANIFEST TO GENERATE
+Generate the following files:
+1. `apps/api/src/core/audit/audit.controller.ts` — Lightweight backend `GET /api/v1/audit-logs` & `GET /api/v1/users` CRUD controller with `@DataScope()` support so the Audit Report and User Admin screens work out of the box.
+2. `apps/web/src/lib/export-utils.ts` — Generic PDF (`jspdf-autotable`), Excel (`xlsx`), and CSV export engine.
+3. `apps/web/src/components/ui/ReportExportBar.tsx` — Reusable top-bar component with PDF, Excel, and CSV export buttons.
+4. `apps/web/src/components/ui/RoleScopeFilterBar.tsx` — Reusable filter bar enforcing Store Manager, Regional Manager, and Executive/Admin scope dropdown rules + Date Range pickers (`startDate <= endDate`).
+5. `apps/web/src/hooks/useSocket.ts` — Socket.io client hook with JWT auth handshake, room sync, toast alerts, and reconnection catch-up.
+6. `apps/web/src/modules/dashboard/api/dashboard.api.ts` — Typed Axios endpoints for Executive and Store dashboards.
+7. `apps/web/src/modules/dashboard/components/DashboardCharts.tsx` — All 5 Recharts components (`SalesTrendChart`, `HealthDonutChart`, `StoreRiskBarChart`, `CategoryShareChart`, `StockOutPreventionChart`).
+8. `apps/web/src/modules/dashboard/components/ExceptionCallouts.tsx` — Actionable anomaly alert cards routing to Action Center.
+9. `apps/web/src/modules/dashboard/components/DemoControlWidget.tsx` — Isolated, feature-flagged demo simulation popover.
+10. `apps/web/src/modules/dashboard/ExecutiveDashboardView.tsx` — Enterprise KPI and 5-chart dashboard.
+11. `apps/web/src/modules/dashboard/StoreDashboardView.tsx` — Single-store operational dashboard with Immediate Risk Watchlist and Incoming Shipments Dock Tracker.
+12. `apps/web/src/modules/reports/api/reports.api.ts` — Typed Axios endpoints for the 6 scoped reports.
+13. `apps/web/src/modules/reports/SalesReportView.tsx` — Report 1: Sales Report.
+14. `apps/web/src/modules/reports/InventoryReportView.tsx` — Report 2: Inventory Health Report.
+15. `apps/web/src/modules/reports/StorePerformanceReportView.tsx` — Report 3: Store Performance Report.
+16. `apps/web/src/modules/reports/RecommendationReportView.tsx` — Report 4: Recommendation & Rebalance Report.
+17. `apps/web/src/modules/reports/SkuPerformanceReportView.tsx` — Report 5: 16-column SKU / Product Performance Report.
+18. `apps/web/src/modules/reports/AuditReportView.tsx` — Report 6: Scoped Audit Report with Side-by-Side JSON Diff Modal.
+19. `apps/web/src/modules/administration/InventoryRuleConfigView.tsx` — Dynamic Min/Max/ROP rule editor with effective dates (SCD Type 2).
+20. `apps/web/src/modules/administration/UserManagementView.tsx` — Full Admin CRUD for users, dynamic role switching, and Store/Region assignment matrix.
+21. `apps/web/src/router/ProtectedRoute.tsx` — Role-based route guard with unauthorized redirect.
+22. `apps/web/src/router/AppRouter.tsx` — Complete application router wiring all screens inside `AppShell`.
+
+---
+
+## 3. DETAILED IMPLEMENTATION SPECIFICATIONS
+
+### A. Generic Export Engine (`src/lib/export-utils.ts` & `ReportExportBar.tsx`)
+```typescript
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
+
+export interface ExportColumnDef<T> {
+  header: string;
+  accessor: keyof T | ((row: T) => string | number);
+}
+
+export function exportToPdf<T>(
+  title: string,
+  subtitle: string,
+  columns: ExportColumnDef<T>[],
+  data: T[],
+  filename: string
+) {
+  const doc = new jsPDF({ orientation: columns.length > 7 ? "landscape" : "portrait" });
+  const headers = columns.map((c) => c.header);
+  const rows = data.map((row) =>
+    columns.map((c) => {
+      const val = typeof c.accessor === "function" ? c.accessor(row) : row[c.accessor];
+      return val !== null && val !== undefined ? String(val) : "-";
+    })
+  );
+
+  doc.setFontSize(16);
+  doc.text(`RetailHub — ${title}`, 14, 15);
+  doc.setFontSize(10);
+  doc.setTextColor(100);
+  doc.text(subtitle, 14, 22);
+
+  autoTable(doc, {
+    startY: 28,
+    head: [headers],
+    body: rows,
+    styles: { fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    didDrawPage: (dataArg) => {
+      const pageCount = doc.getNumberOfPages();
+      doc.setFontSize(8);
+      doc.text(
+        `Generated on ${new Date().toLocaleString()} • Page ${dataArg.pageNumber} of ${pageCount}`,
+        14,
+        doc.internal.pageSize.height - 10
+      );
+    },
+  });
+
+  doc.save(`${filename}_${Date.now()}.pdf`);
+}
+
+export function exportToExcelOrCsv<T>(
+  columns: ExportColumnDef<T>[],
+  data: T[],
+  filename: string,
+  format: "xlsx" | "csv"
+) {
+  const formattedRows = data.map((row) => {
+    const obj: Record<string, any> = {};
+    columns.forEach((c) => {
+      obj[c.header] = typeof c.accessor === "function" ? c.accessor(row) : row[c.accessor];
+    });
+    return obj;
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(formattedRows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
+
+  if (format === "csv") {
+    XLSX.writeFile(workbook, `${filename}_${Date.now()}.csv`, { bookType: "csv" });
+  } else {
+    XLSX.writeFile(workbook, `${filename}_${Date.now()}.xlsx`, { bookType: "xlsx" });
+  }
+}
+
+B. Role-Scoped Filter Bar (src/components/ui/RoleScopeFilterBar.tsx)
+Reads user from useAuth() and active scope from useDataScope().
+
+Renders:
+
+Region Selector (DropSearch):
+
+Hidden for STORE_MANAGER.
+
+Locked to assigned region for REGIONAL_MANAGER.
+
+Unrestricted with "All Regions" option for EXECUTIVE and ADMIN.
+
+Store Selector (DropSearch):
+
+Locked to assigned store for STORE_MANAGER (shows lock icon 🔒).
+
+Populated with stores inside the assigned region (plus "All Stores in Region") for REGIONAL_MANAGER.
+
+Unrestricted with "All Enterprise Stores" for EXECUTIVE and ADMIN.
+
+Date Range Pickers: Start Date and End Date using DatePicker. Enforces startDate <= endDate.
+
+C. SKU / Product Performance Report (src/modules/reports/SkuPerformanceReportView.tsx)
+Uses PageLayout, RoleScopeFilterBar, and ReportExportBar.
+
+Additional filters: Category (CategoryTreeCombobox), Brand (DropSearch), Velocity Tier (ALL, FAST_MOVING, MODERATE, SLOW_MOVING, DEAD_STOCK), and Stock Status.
+
+Renders ServerDataTable and exports all 16 columns:
+
+sku (SKU Code)
+
+productCode (Barcode)
+
+name (Product Name)
+
+categoryName (Category)
+
+brandName (Brand)
+
+unitOfMeasure (UOM)
+
+costPrice (Cost Price ₹)
+
+mrp (MRP ₹)
+
+sellingPrice (Store Price ₹)
+
+marginPercent (((sellingPrice - costPrice) / sellingPrice * 100).toFixed(1) + '%')
+
+availableStock (Scoped Available Stock)
+
+inTransitStock (Scoped In-Transit Stock)
+
+stockValuation (((availableStock + inTransitStock) * costPrice).toFixed(2))
+
+unitsSold (Scoped Units Sold in period)
+
+netRevenue (Scoped Net Revenue ₹)
+
+adsAndDoi (ADS / DOI / Velocity Tier / StatusBadge)
+
+D. Scoped Audit Report (src/modules/reports/AuditReportView.tsx)
+Uses PageLayout, RoleScopeFilterBar, and ReportExportBar.
+
+Filters: Date Range, Region/Store scope, Action Type (APPROVE_TRANSFER, MODIFY_RECOMMENDATION, REJECT_RECOMMENDATION, ADJUST_STOCK, RECEIVE_TRANSFER, UPDATE_PRODUCT, UPDATE_RULE, USER_ASSIGNMENT), and Entity Name.
+
+Columns: Timestamp, Correlation ID, Actor (Name + Role), Store/Region Scope, Action Badge, Entity & Reference ID, Change Summary (Before ➔ After), Remarks, and "Inspect Diff" button.
+
+Clicking "Inspect Diff" opens a modal displaying side-by-side formatted JSON (oldValues vs newValues) with changed keys highlighted.
+
+E. Dynamic User & Authority Management (src/modules/administration/UserManagementView.tsx)
+Accessible to ADMIN.
+
+Table lists all users: Full Name, Avatar, Email, Mobile Number, Current Role Badge, Assigned Stores / Regions pills, Status (ACTIVE / INACTIVE), and Actions.
+
+Create / Edit User Modal:
+
+Allows changing role (STORE_MANAGER, REGIONAL_MANAGER, EXECUTIVE, ADMIN) dynamically at any time.
+
+Multi-select store assignment (UserStoreAssignment) and region assignment (UserRegionAssignment).
+
+Toggle isActive.
+
+F. Real-Time WebSockets & Isolated Demo Widget
+src/hooks/useSocket.ts:
+
+Connects to io("/", { auth: { token } }).
+
+On STOCK_UPDATED: Invalidates ['inventory'], ['dashboards'], ['reports'].
+
+On REC_CREATED: Increments unread count, shows Sonner toast, invalidates ['recommendations'].
+
+On REC_UPDATED: Invalidates ['recommendations'], ['dashboards'].
+
+On connect: Emits client_reconnected and refreshes active queries.
+
+src/modules/dashboard/components/DemoControlWidget.tsx:
+
+Standalone popover with 2 buttons:
+
+"⚡ Trigger Bhopal POS Sales Spike (SKU-1024)": Calls POST /api/v1/simulation/sales-spike + POST /api/v1/intelligence/evaluate/store/:bhopalId.
+
+"🔄 Reset Golden Path Demo Data": Calls POST /api/v1/simulation/seed-demo with { cleanReset: true }.
+
+Provide full, complete, production-ready source code for each file in the manifest.
