@@ -368,6 +368,179 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
   // -------------------------------------------------------------
   // 3. ACTION CENTER / RECOMMENDATIONS
   // -------------------------------------------------------------
+  const buildEnrichedRecommendation = (r: any, invList: any[]) => {
+    const destStore = storesMap.get(r.toStoreId || r.storeId);
+    const srcStore = r.fromStoreId ? storesMap.get(r.fromStoreId) : null;
+    const product = productsMap.get(r.productId);
+    const category = product ? categoriesMap.get(product.categoryId) : null;
+
+    const destInv = invList.find((i) => i.storeId === destStore?.id && i.productId === r.productId);
+    const destStockBefore = destInv ? Number(destInv.availableQuantity) : 0;
+    const recQty = Number(r.recommendedQuantity || 20);
+    const destStockAfter = destStockBefore + recQty;
+
+    const destAds = Number((destInv && destInv.reorderLevel ? Number(destInv.reorderLevel) / 1.75 : 8.571).toFixed(3));
+    const destDoiBefore = destAds > 0 ? Number((destStockBefore / destAds).toFixed(1)) : 0;
+    const destDoiAfter = destAds > 0 ? Number((destStockAfter / destAds).toFixed(1)) : 14.0;
+
+    let srcStockBefore = 0;
+    let srcStockAfter = 0;
+    let srcDoiBefore = 0;
+    let srcDoiAfter = 0;
+    let srcAds = 8.571;
+
+    if (srcStore) {
+      const srcInv = invList.find((i) => i.storeId === srcStore.id && i.productId === r.productId);
+      srcStockBefore = srcInv ? Number(srcInv.availableQuantity) : 55;
+      srcStockAfter = Math.max(0, srcStockBefore - recQty);
+      srcAds = Number((srcInv && srcInv.reorderLevel ? Number(srcInv.reorderLevel) / 1.75 : 8.571).toFixed(3));
+      srcDoiBefore = srcAds > 0 ? Number((srcStockBefore / srcAds).toFixed(1)) : 50.0;
+      srcDoiAfter = srcAds > 0 ? Number((srcStockAfter / srcAds).toFixed(1)) : 40.0;
+    }
+
+    const costPrice = Number(product?.costPrice || 110);
+    const mrp = Number(product?.mrp || 150);
+
+    const isSameRegion = destStore && srcStore && destStore.regionId === srcStore.regionId;
+    const distanceKm = srcStore ? (isSameRegion ? 25 : 280) : 150;
+    const estTransitHours = Number((distanceKm / 45).toFixed(1));
+    const toStoreFormat = destStore?.name.includes("Express")
+      ? "EXPRESS"
+      : destStore?.name.includes("Supermarket")
+        ? "SUPERMARKET"
+        : "HYPERMARKET";
+    const fromStoreFormat = srcStore
+      ? srcStore.name.includes("Express")
+        ? "EXPRESS"
+        : srcStore.name.includes("Supermarket")
+          ? "SUPERMARKET"
+          : "HYPERMARKET"
+      : null;
+
+    const createdOn = r.createdAt || new Date().toISOString();
+    const updatedOn = r.updatedAt || createdOn;
+    const aiExplanation =
+      r.aiExplanation ||
+      `Initiate replenishment of ${recQty} units for ${product?.name || "SKU"} (${product?.sku || "SKU-0000"}) at ${destStore?.name || "Destination Store"} (${destStore?.storeCode || "DST-001"}) to safeguard customer service levels.`;
+    const potentialRevenueSaved = Math.round(recQty * mrp);
+
+    const destStoreMetrics = {
+      id: destStore?.id || r.toStoreId || r.storeId || "store-dest",
+      name: destStore?.name || "Destination Hypermarket",
+      code: destStore?.storeCode || "DST-001",
+      format: toStoreFormat,
+      city: destStore?.city || "City",
+      state: destStore?.regionId || "State",
+      currentStock: destStockBefore,
+      ads: destAds,
+      currentDOI: destDoiBefore,
+    };
+
+    const sourceStoreMetrics = srcStore
+      ? {
+          id: srcStore.id,
+          name: srcStore.name,
+          code: srcStore.storeCode,
+          format: fromStoreFormat || "HYPERMARKET",
+          city: srcStore.city,
+          state: srcStore.regionId || "State",
+          currentStock: srcStockBefore,
+          ads: srcAds,
+          currentDOI: srcDoiBefore,
+          distanceKm,
+        }
+      : null;
+
+    const auditHistory =
+      Array.isArray(r.auditHistory) && r.auditHistory.length > 0
+        ? r.auditHistory
+        : [
+            {
+              id: `aud-${r.id}-init`,
+              recommendationId: r.id,
+              previousStatus: null,
+              newStatus: r.status || "OPEN",
+              changedBy: "SYSTEM-ENGINE",
+              changedByName: "RepleniQ™ Autonomous Engine",
+              changedByRole: "SYSTEM",
+              changedOn: createdOn,
+              comments: r.isManualRequest
+                ? r.reason || "Store manager escalated manual replenishment request."
+                : "Generated automatically from regional DOI and ADS velocity scan.",
+            },
+          ];
+
+    return {
+      id: r.id,
+      recNumber: r.recommendationNumber || `REC-${r.id.slice(0, 8)}`,
+      recommendationNumber: r.recommendationNumber || `REC-${r.id.slice(0, 8)}`,
+      recommendationType: r.recommendationType || "REBALANCE_TRANSFER",
+      priority: r.priority || "HIGH",
+      status: r.status || "OPEN",
+      isManualRequest: Boolean(r.isManualRequest),
+      requestedByStoreManagerName: r.requestedByUserId ? "Store Manager" : null,
+      storeRequestReason: r.reason || null,
+      productId: r.productId,
+      productName: product?.name || "Consumer Product",
+      sku: product?.sku || "SKU-0000",
+      barcode: product?.productCode || "8901000000000",
+      categoryName: category?.name || "General Goods",
+      unitCost: costPrice,
+      mrp,
+      toStoreId: destStoreMetrics.id,
+      toStoreName: destStoreMetrics.name,
+      toStoreCode: destStoreMetrics.code,
+      toStoreFormat,
+      toStoreCity: destStoreMetrics.city,
+      toStoreState: destStoreMetrics.state,
+      destStoreId: destStoreMetrics.id,
+      destStoreName: destStoreMetrics.name,
+      destStoreCode: destStoreMetrics.code,
+      fromStoreId: srcStore?.id || null,
+      fromStoreName: srcStore?.name || "Central Supply / Mother Hub",
+      fromStoreCode: srcStore?.storeCode || "HUB-CENTRAL",
+      fromStoreFormat: fromStoreFormat || "MOTHER_WAREHOUSE",
+      fromStoreCity: srcStore?.city || "National DC",
+      fromStoreState: srcStore?.regionId || "Central DC",
+      sourceStoreId: srcStore?.id || null,
+      sourceStoreName: srcStore?.name || "Central Supply / Mother Hub",
+      sourceStoreCode: srcStore?.storeCode || "HUB-CENTRAL",
+      recommendedQty: recQty,
+      approvedQty: r.approvedQty ?? null,
+      destStockBefore,
+      destStockAfter,
+      destDoiBefore,
+      destDoiAfter,
+      destAds,
+      sourceStockBefore: srcStore ? srcStockBefore : null,
+      sourceStockAfter: srcStore ? srcStockAfter : null,
+      sourceDoiBefore: srcStore ? srcDoiBefore : null,
+      sourceDoiAfter: srcStore ? srcDoiAfter : null,
+      sourceAds: srcStore ? srcAds : null,
+      distanceKm,
+      estTransitHours,
+      estimatedTransferCost: Number((distanceKm * 18).toFixed(0)),
+      potentialRevenueSaved,
+      aiExplanation,
+      aiBriefing: aiExplanation,
+      aiConfidence: 0.94,
+      aiKeyFactors: [
+        "Donor store retains > 7-day safety DOI",
+        "Line-haul transit distance within regional corridor",
+        "High-velocity SKU preventing imminent stockout",
+      ],
+      evidenceRows: r.evidence || [],
+      destStore: destStoreMetrics,
+      sourceStore: sourceStoreMetrics,
+      auditHistory,
+      createdAt: createdOn,
+      createdOn,
+      timestamp: createdOn,
+      updatedAt: updatedOn,
+      updatedOn,
+    };
+  };
+
   if ((url === "/recommendations" || url === "/action-center") && method === "GET") {
     const rawRecs = getRecommendationsList();
     const invList = getInventoryList();
@@ -384,108 +557,7 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
     const limit = Math.max(1, Number(params.limit || 10));
 
     // Enrich recommendations
-    let enriched = rawRecs.map((r) => {
-      const destStore = storesMap.get(r.toStoreId || r.storeId);
-      const srcStore = r.fromStoreId ? storesMap.get(r.fromStoreId) : null;
-      const product = productsMap.get(r.productId);
-      const category = product ? categoriesMap.get(product.categoryId) : null;
-
-      // Live shelf stock for destination store
-      const destInv = invList.find((i) => i.storeId === destStore?.id && i.productId === r.productId);
-      const destStockBefore = destInv ? Number(destInv.availableQuantity) : 0;
-      const recQty = Number(r.recommendedQuantity || 20);
-      const destStockAfter = destStockBefore + recQty;
-
-      const destAds = Number((destInv && destInv.reorderLevel ? Number(destInv.reorderLevel) / 1.75 : 8.571).toFixed(3));
-      const destDoiBefore = destAds > 0 ? Number((destStockBefore / destAds).toFixed(1)) : 0;
-      const destDoiAfter = destAds > 0 ? Number((destStockAfter / destAds).toFixed(1)) : 14.0;
-
-      // Source store stock
-      let srcStockBefore = 0;
-      let srcStockAfter = 0;
-      let srcDoiBefore = 0;
-      let srcDoiAfter = 0;
-      let srcAds = 8.571;
-
-      if (srcStore) {
-        const srcInv = invList.find((i) => i.storeId === srcStore.id && i.productId === r.productId);
-        srcStockBefore = srcInv ? Number(srcInv.availableQuantity) : 55;
-        srcStockAfter = Math.max(0, srcStockBefore - recQty);
-        srcAds = Number((srcInv && srcInv.reorderLevel ? Number(srcInv.reorderLevel) / 1.75 : 8.571).toFixed(3));
-        srcDoiBefore = srcAds > 0 ? Number((srcStockBefore / srcAds).toFixed(1)) : 50.0;
-        srcDoiAfter = srcAds > 0 ? Number((srcStockAfter / srcAds).toFixed(1)) : 40.0;
-      }
-
-      const costPrice = Number(product?.costPrice || 110);
-      const mrp = Number(product?.mrp || 150);
-
-      const isSameRegion = destStore && srcStore && destStore.regionId === srcStore.regionId;
-      const distanceKm = srcStore ? (isSameRegion ? 25 : 280) : 150;
-      const estTransitHours = Number((distanceKm / 45).toFixed(1));
-
-      return {
-        id: r.id,
-        recNumber: r.recommendationNumber || `REC-${r.id.slice(0, 8)}`,
-        recommendationNumber: r.recommendationNumber || `REC-${r.id.slice(0, 8)}`,
-        recommendationType: r.recommendationType || "REBALANCE_TRANSFER",
-        priority: r.priority || "HIGH",
-        status: r.status || "OPEN",
-        isManualRequest: Boolean(r.isManualRequest),
-        requestedByStoreManagerName: r.requestedByUserId ? "Store Manager" : null,
-        storeRequestReason: r.reason || null,
-        productId: r.productId,
-        productName: product?.name || "Consumer Product",
-        sku: product?.sku || "SKU-0000",
-        barcode: product?.productCode || "8901000000000",
-        categoryName: category?.name || "General Goods",
-        unitCost: costPrice,
-        mrp,
-        toStoreId: destStore?.id || r.toStoreId || r.storeId,
-        toStoreName: destStore?.name || "Destination Hypermarket",
-        toStoreCode: destStore?.storeCode || "DST-001",
-        toStoreFormat: destStore?.name.includes("Express") ? "EXPRESS" : (destStore?.name.includes("Supermarket") ? "SUPERMARKET" : "HYPERMARKET"),
-        toStoreCity: destStore?.city || "City",
-        toStoreState: destStore?.regionId || "State",
-        destStoreId: destStore?.id || r.toStoreId || r.storeId,
-        destStoreName: destStore?.name || "Destination Hypermarket",
-        destStoreCode: destStore?.storeCode || "DST-001",
-        fromStoreId: srcStore?.id || null,
-        fromStoreName: srcStore?.name || "Central Supply / Mother Hub",
-        fromStoreCode: srcStore?.storeCode || "HUB-CENTRAL",
-        fromStoreFormat: srcStore ? (srcStore.name.includes("Express") ? "EXPRESS" : (srcStore.name.includes("Supermarket") ? "SUPERMARKET" : "HYPERMARKET")) : "MOTHER_WAREHOUSE",
-        fromStoreCity: srcStore?.city || "National DC",
-        fromStoreState: srcStore?.regionId || "Central DC",
-        sourceStoreId: srcStore?.id || null,
-        sourceStoreName: srcStore?.name || "Central Supply / Mother Hub",
-        sourceStoreCode: srcStore?.storeCode || "HUB-CENTRAL",
-        recommendedQty: recQty,
-        destStockBefore,
-        destStockAfter,
-        destDoiBefore,
-        destDoiAfter,
-        destAds,
-        sourceStockBefore: srcStore ? srcStockBefore : null,
-        sourceStockAfter: srcStore ? srcStockAfter : null,
-        sourceDoiBefore: srcStore ? srcDoiBefore : null,
-        sourceDoiAfter: srcStore ? srcDoiAfter : null,
-        sourceAds: srcStore ? srcAds : null,
-        distanceKm,
-        estTransitHours,
-        estimatedTransferCost: Number((distanceKm * 18).toFixed(0)),
-        aiBriefing: r.aiExplanation || `Initiate replenishment of ${recQty} units for ${product?.name} (${product?.sku}) at ${destStore?.name} (${destStore?.storeCode}) to safeguard customer service levels.`,
-        aiConfidence: 0.94,
-        aiKeyFactors: [
-          "Donor store retains > 7-day safety DOI",
-          "Line-haul transit distance within regional corridor",
-          "High-velocity SKU preventing imminent stockout",
-        ],
-        evidenceRows: r.evidence || [],
-        createdAt: r.createdAt || new Date().toISOString(),
-        createdOn: r.createdAt || new Date().toISOString(),
-        timestamp: r.createdAt || new Date().toISOString(),
-        updatedAt: r.updatedAt || new Date().toISOString(),
-      };
-    });
+    let enriched = rawRecs.map((r) => buildEnrichedRecommendation(r, invList));
 
     // Filters
     if (requestType && requestType !== "ALL") {
@@ -552,8 +624,14 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
   }
 
   // Candidates for Recommendation
-  if (url.startsWith("/recommendations/candidates/") && method === "GET") {
-    const recId = url.slice("/recommendations/candidates/".length);
+  if (
+    (url.startsWith("/recommendations/candidates/") ||
+      url.startsWith("/intelligence/candidates/")) &&
+    method === "GET"
+  ) {
+    const recId = url.startsWith("/intelligence/candidates/")
+      ? url.slice("/intelligence/candidates/".length)
+      : url.slice("/recommendations/candidates/".length);
     const recList = getRecommendationsList();
     const rec = recList.find((r) => r.id === recId || r.recommendationNumber === recId);
 
@@ -638,11 +716,44 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
       rankedCandidates = [centralSupplyCandidate, ...atRiskPeers];
     }
 
-    return createSuccessResponse(config, rankedCandidates);
+    return createSuccessResponse(
+      config,
+      rankedCandidates.map((cand, idx) => ({ ...cand, rank: idx + 1 })),
+    );
+  }
+
+  // AI Explanation for Recommendation
+  if (url.startsWith("/recommendations/") && url.endsWith("/explain") && method === "GET") {
+    const recId = url.slice("/recommendations/".length, -"/explain".length);
+    const recList = getRecommendationsList();
+    const r = recList.find((item) => item.id === recId || item.recommendationNumber === recId);
+
+    if (!r) {
+      return createErrorResponse(config, 404, "Recommendation not found.", "NOT_FOUND");
+    }
+
+    const enriched = buildEnrichedRecommendation(r, getInventoryList());
+    return createSuccessResponse(config, {
+      recommendationId: enriched.id,
+      narrative: enriched.aiExplanation,
+      model: getModelConfig().activeModel || "gemini-2.5-flash",
+      generatedAt: new Date().toISOString(),
+      fallbackUsed: false,
+      confidenceScore: 0.94,
+      keyDrivers: enriched.aiKeyFactors,
+    });
   }
 
   // Recommendation Detail
-  if (url.startsWith("/recommendations/") && !url.includes("/approve") && !url.includes("/modify") && !url.includes("/reject") && !url.includes("/rules") && method === "GET") {
+  if (
+    url.startsWith("/recommendations/") &&
+    !url.includes("/approve") &&
+    !url.includes("/modify") &&
+    !url.includes("/reject") &&
+    !url.includes("/rules") &&
+    !url.includes("/explain") &&
+    method === "GET"
+  ) {
     const recId = url.slice("/recommendations/".length);
     const recList = getRecommendationsList();
     const r = recList.find((item) => item.id === recId || item.recommendationNumber === recId);
@@ -651,45 +762,7 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
       return createErrorResponse(config, 404, "Recommendation not found.", "NOT_FOUND");
     }
 
-    const destStore = storesMap.get(r.toStoreId || r.storeId);
-    const srcStore = r.fromStoreId ? storesMap.get(r.fromStoreId) : null;
-    const product = productsMap.get(r.productId);
-    const category = product ? categoriesMap.get(product.categoryId) : null;
-
-    const invList = getInventoryList();
-    const destInv = invList.find((i) => i.storeId === destStore?.id && i.productId === r.productId);
-    const destStockBefore = destInv ? Number(destInv.availableQuantity) : 0;
-    const recQty = Number(r.recommendedQuantity || 20);
-
-    return createSuccessResponse(config, {
-      id: r.id,
-      recommendationNumber: r.recommendationNumber,
-      recommendationType: r.recommendationType,
-      priority: r.priority,
-      status: r.status,
-      isManualRequest: Boolean(r.isManualRequest),
-      productId: r.productId,
-      productName: product?.name || "Product",
-      sku: product?.sku || "SKU-0000",
-      barcode: product?.productCode || "8901000000000",
-      categoryName: category?.name || "General",
-      unitCost: Number(product?.costPrice || 110),
-      mrp: Number(product?.mrp || 150),
-      toStoreId: destStore?.id || r.toStoreId,
-      toStoreName: destStore?.name || "Store",
-      toStoreCode: destStore?.storeCode || "STR-001",
-      fromStoreId: srcStore?.id || null,
-      fromStoreName: srcStore?.name || "Central Supply / Mother Hub",
-      fromStoreCode: srcStore?.storeCode || "HUB-CENTRAL",
-      recommendedQty: recQty,
-      destStockBefore,
-      destStockAfter: destStockBefore + recQty,
-      destDoiBefore: destStockBefore > 0 ? Number((destStockBefore / 8.571).toFixed(1)) : 0,
-      destDoiAfter: Number(((destStockBefore + recQty) / 8.571).toFixed(1)),
-      aiBriefing: r.aiExplanation || "Initiate stock transfer.",
-      evidenceRows: r.evidence || [],
-      createdAt: r.createdAt,
-    });
+    return createSuccessResponse(config, buildEnrichedRecommendation(r, getInventoryList()));
   }
 
   // Approve Recommendation
@@ -702,10 +775,14 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
       return createErrorResponse(config, 404, "Recommendation not found.", "NOT_FOUND");
     }
 
+    if (body?.fromStoreId !== undefined) {
+      rec.fromStoreId = body.fromStoreId === "CENTRAL_SUPPLY" ? null : body.fromStoreId;
+    }
+    const transferQty = Number(body?.approvedQuantity ?? rec.recommendedQuantity ?? 20);
+    rec.recommendedQuantity = transferQty;
+    rec.approvedQty = transferQty;
     rec.status = "APPROVED";
     rec.updatedAt = new Date().toISOString();
-
-    const transferQty = Number(rec.recommendedQuantity || 20);
 
     // Create Stock Transfer
     const transfers = getTransfersList();
@@ -715,8 +792,8 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
       fromStoreId: rec.fromStoreId || "CENTRAL_SUPPLY",
       toStoreId: rec.toStoreId || rec.storeId,
       status: "IN_TRANSIT",
-      carrierName: "RetailHub Logistics Line-Haul",
-      vehicleNumber: "MH-04-RH-8822",
+      carrierName: body?.carrierName || "RepleniQ Logistics Line-Haul",
+      vehicleNumber: body?.vehicleNumber || "MH-04-RH-8822",
       dispatchNoteNumber: `DN-${Date.now().toString().slice(-6)}`,
       estimatedArrival: new Date(Date.now() + 12 * 3600000).toISOString(),
       dispatchedAt: new Date().toISOString(),
@@ -772,9 +849,7 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
     });
 
     return createSuccessResponse(config, {
-      id: rec.id,
-      recommendationNumber: rec.recommendationNumber,
-      status: "APPROVED",
+      ...buildEnrichedRecommendation(rec, getInventoryList()),
       stockTransferId: newTransfer.id,
       stockTransfer: newTransfer,
     });
@@ -813,7 +888,7 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
       },
     });
 
-    return createSuccessResponse(config, rec);
+    return createSuccessResponse(config, buildEnrichedRecommendation(rec, getInventoryList()));
   }
 
   // Reject Recommendation
@@ -837,7 +912,7 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
       newValues: { status: "REJECTED", reason: body.reason || body.comments },
     });
 
-    return createSuccessResponse(config, rec);
+    return createSuccessResponse(config, buildEnrichedRecommendation(rec, getInventoryList()));
   }
 
   if (url === "/recommendations/rules" && method === "GET") {

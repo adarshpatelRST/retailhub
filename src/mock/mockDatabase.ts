@@ -114,6 +114,7 @@ export interface DemoRecommendation {
   fromStoreId: string | null;
   toStoreId: string;
   recommendedQuantity: number | string;
+  approvedQty?: number | null;
   priority: "HIGH" | "MEDIUM" | "LOW";
   reason: string;
   status: "OPEN" | "GENERATED" | "REVIEWED" | "APPROVED" | "MODIFIED" | "REJECTED" | "EXECUTED" | "EXPIRED";

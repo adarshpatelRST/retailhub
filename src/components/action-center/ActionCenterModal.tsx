@@ -264,8 +264,8 @@ export const ActionCenterModal: React.FC<ActionCenterModalProps> = ({
                     </h3>
                     <p className="text-xs text-muted-foreground">
                       Category: {recommendation.categoryName} • Unit Cost: ₹
-                      {recommendation.unitCost.toLocaleString("en-IN")} • MRP: ₹
-                      {recommendation.mrp.toLocaleString("en-IN")}
+                      {Number(recommendation.unitCost ?? 0).toLocaleString("en-IN")} • MRP: ₹
+                      {Number(recommendation.mrp ?? 0).toLocaleString("en-IN")}
                     </p>
                   </div>
 
@@ -275,9 +275,10 @@ export const ActionCenterModal: React.FC<ActionCenterModalProps> = ({
                     </span>
                     <span className="text-base font-bold text-emerald-700">
                       ₹
-                      {recommendation.potentialRevenueSaved.toLocaleString(
-                        "en-IN",
-                      )}
+                      {Number(
+                        recommendation.potentialRevenueSaved ??
+                          (recommendation.recommendedQty ?? 0) * (recommendation.mrp ?? 0),
+                      ).toLocaleString("en-IN")}
                     </span>
                   </div>
                 </div>
@@ -312,10 +313,19 @@ export const ActionCenterModal: React.FC<ActionCenterModalProps> = ({
                     </h4>
                   </div>
                   <SideBySideStoreCard
-                    destStore={recommendation.destStore}
+                    destStore={
+                      recommendation.destStore ?? {
+                        name: recommendation.toStoreName ?? "Destination Store",
+                        code: recommendation.toStoreCode ?? "DST-001",
+                        format: recommendation.toStoreFormat ?? "HYPERMARKET",
+                        currentStock: recommendation.destStockBefore ?? 0,
+                        ads: recommendation.destAds ?? 0,
+                        currentDOI: recommendation.destDoiBefore ?? 0,
+                      }
+                    }
                     sourceStore={activeSourceStore}
                     transferQty={transferQty}
-                    unitCost={recommendation.unitCost}
+                    unitCost={recommendation.unitCost ?? 0}
                   />
                 </div>
 
@@ -493,7 +503,7 @@ export const ActionCenterModal: React.FC<ActionCenterModalProps> = ({
                       <History className="h-3.5 w-3.5 text-slate-500 shrink-0" />
                       <span>
                         ActionHistory Audit Trail Timeline (
-                        {recommendation.auditHistory.length} events logged)
+                        {(recommendation.auditHistory ?? []).length} events logged)
                       </span>
                     </span>
                     {showAuditHistory ? (
@@ -505,7 +515,7 @@ export const ActionCenterModal: React.FC<ActionCenterModalProps> = ({
 
                   {showAuditHistory && (
                     <div className="mt-3 space-y-2.5 max-h-48 overflow-y-auto pr-1">
-                      {recommendation.auditHistory.map((entry: any) => (
+                      {(recommendation.auditHistory ?? []).map((entry: any) => (
                         <div
                           key={entry.id}
                           className="rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 text-xs space-y-1.5"
