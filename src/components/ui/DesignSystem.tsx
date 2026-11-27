@@ -228,7 +228,7 @@ const dashboardCardVariants = cva(
 
 export interface DashboardCardProps
   extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof dashboardCardVariants> {}
+  VariantProps<typeof dashboardCardVariants> { }
 
 export const DashboardCard: React.FC<DashboardCardProps> = ({
   padding,

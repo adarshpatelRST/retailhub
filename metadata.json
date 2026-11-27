@@ -2,5 +2,7 @@
   "name": "RepleniQ™ — Powered by RustyStick Technologies LLP",
   "description": "RepleniQ™ high-velocity retail operations, inventory optimization, and autonomous stock rebalancing platform, powered by RustyStick Technologies LLP.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
