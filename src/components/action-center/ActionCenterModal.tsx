@@ -277,7 +277,7 @@ export const ActionCenterModal: React.FC<ActionCenterModalProps> = ({
                       ₹
                       {Number(
                         recommendation.potentialRevenueSaved ??
-                          (recommendation.recommendedQty ?? 0) * (recommendation.mrp ?? 0),
+                          ((recommendation.unitCost || 0) * (recommendation.recommendedQty || 0)),
                       ).toLocaleString("en-IN")}
                     </span>
                   </div>
@@ -315,11 +315,14 @@ export const ActionCenterModal: React.FC<ActionCenterModalProps> = ({
                   <SideBySideStoreCard
                     destStore={
                       recommendation.destStore ?? {
+                        id: recommendation.toStoreId,
                         name: recommendation.toStoreName ?? "Destination Store",
                         code: recommendation.toStoreCode ?? "DST-001",
-                        format: recommendation.toStoreFormat ?? "HYPERMARKET",
+                        format: recommendation.toStoreFormat || "HYPERMARKET",
+                        city: "Store City",
+                        state: "State",
                         currentStock: recommendation.destStockBefore ?? 0,
-                        ads: recommendation.destAds ?? 0,
+                        ads: recommendation.destAds ?? 1.8,
                         currentDOI: recommendation.destDoiBefore ?? 0,
                       }
                     }
@@ -528,13 +531,15 @@ export const ActionCenterModal: React.FC<ActionCenterModalProps> = ({
                               </span>
                             </span>
                             <span className="font-mono text-[11px] text-slate-400">
-                              {new Date(entry.changedOn).toLocaleString(
-                                "en-IN",
-                                {
-                                  dateStyle: "medium",
-                                  timeStyle: "short",
-                                },
-                              )}
+                              {entry.changedOn
+                                ? new Date(entry.changedOn).toLocaleString(
+                                    "en-IN",
+                                    {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    },
+                                  )
+                                : "—"}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5 font-mono text-[11px]">

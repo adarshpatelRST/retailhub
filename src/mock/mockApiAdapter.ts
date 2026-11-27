@@ -626,12 +626,11 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
   // Candidates for Recommendation
   if (
     (url.startsWith("/recommendations/candidates/") ||
-      url.startsWith("/intelligence/candidates/")) &&
+      url.startsWith("/intelligence/candidates/") ||
+      url.startsWith("/action-center/candidates/")) &&
     method === "GET"
   ) {
-    const recId = url.startsWith("/intelligence/candidates/")
-      ? url.slice("/intelligence/candidates/".length)
-      : url.slice("/recommendations/candidates/".length);
+    const recId = url.replace(/^\/(recommendations|intelligence|action-center)\/candidates\//, "");
     const recList = getRecommendationsList();
     const rec = recList.find((r) => r.id === recId || r.recommendationNumber === recId);
 
@@ -892,7 +891,7 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
   }
 
   // Reject Recommendation
-  if (url.includes("/recommendations/") && url.endsWith("/reject") && method === "POST") {
+  if (url.includes("/recommendations/") && url.endsWith("/reject") && !url.includes("batch-reject") && method === "POST") {
     const recId = url.replace("/recommendations/", "").replace("/reject", "");
     const recList = getRecommendationsList();
     const rec = recList.find((r) => r.id === recId || r.recommendationNumber === recId);
@@ -915,12 +914,157 @@ export async function mockAxiosAdapter(config: InternalAxiosRequestConfig): Prom
     return createSuccessResponse(config, buildEnrichedRecommendation(rec, getInventoryList()));
   }
 
+  // Batch Approve Recommendations
+  if (url === "/recommendations/batch-approve" && method === "POST") {
+    const { ids = [], comments = "Batch approved for dispatch via multi-select." } = body;
+    const recList = getRecommendationsList();
+    const transfers = getTransfersList();
+    const invList = getInventoryList();
+
+    let totalUnits = 0;
+    let totalValuation = 0;
+    const generatedTransferIds: string[] = [];
+    let approvedCount = 0;
+
+    for (const id of ids) {
+      const rec = recList.find((r) => r.id === id || r.recommendationNumber === id);
+      if (!rec) continue;
+      if (rec.status === "APPROVED" || rec.status === "REJECTED" || rec.status === "EXECUTED") {
+        continue;
+      }
+
+      rec.status = "APPROVED";
+      rec.updatedAt = new Date().toISOString();
+      const transferQty = Number(rec.recommendedQuantity || 20);
+      rec.approvedQty = transferQty;
+      approvedCount++;
+      totalUnits += transferQty;
+
+      const product = productsMap.get(rec.productId);
+      const price = Number(product?.mrp || product?.sellingPrice || product?.costPrice || 250);
+      totalValuation += transferQty * price;
+
+      const newTransferId = `trf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      generatedTransferIds.push(newTransferId);
+
+      const newTransfer: DemoTransfer = {
+        id: newTransferId,
+        transferNumber: `TRF-${Date.now().toString().slice(-6)}`,
+        fromStoreId: rec.fromStoreId || "CENTRAL_SUPPLY",
+        toStoreId: rec.toStoreId || rec.storeId,
+        status: "IN_TRANSIT",
+        carrierName: "RetailHub Logistics Line-Haul",
+        vehicleNumber: "MH-04-RH-8822",
+        dispatchNoteNumber: `DN-${Date.now().toString().slice(-6)}`,
+        estimatedArrival: new Date(Date.now() + 4 * 3600 * 1000).toISOString(),
+        dispatchedAt: new Date().toISOString(),
+        receivedAt: null,
+        requestedBy: "usr-rm-west",
+        approvedBy: "usr-rm-west",
+        receivedBy: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lines: [
+          {
+            id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            productId: rec.productId,
+            requestedQuantity: transferQty,
+            shippedQuantity: transferQty,
+            receivedQuantity: null,
+            discrepancyQuantity: 0,
+            discrepancyReason: null,
+          },
+        ],
+      };
+      transfers.unshift(newTransfer);
+
+      const destInv = invList.find((i) => i.storeId === rec.toStoreId && i.productId === rec.productId);
+      if (destInv) {
+        destInv.inTransitQuantity = Number(destInv.inTransitQuantity || 0) + transferQty;
+        destInv.lastUpdatedOn = new Date().toISOString();
+      }
+
+      if (rec.fromStoreId && rec.fromStoreId !== "CENTRAL_SUPPLY") {
+        const srcInv = invList.find((i) => i.storeId === rec.fromStoreId && i.productId === rec.productId);
+        if (srcInv) {
+          srcInv.availableQuantity = Math.max(0, Number(srcInv.availableQuantity || 0) - transferQty);
+          srcInv.lastUpdatedOn = new Date().toISOString();
+        }
+      }
+
+      addAuditLogEntry({
+        action: "BATCH_APPROVE_RECOMMENDATION",
+        entityName: "Recommendation",
+        entityId: rec.recommendationNumber,
+        newValues: { status: "APPROVED", transferId: newTransfer.id, quantity: transferQty, comments },
+      });
+    }
+
+    saveRecommendationsList(recList);
+    saveTransfersList(transfers);
+    saveInventoryList(invList);
+
+    return createSuccessResponse(config, {
+      approvedCount,
+      skippedCount: ids.length - approvedCount,
+      totalUnitsApproved: totalUnits,
+      totalValuationInr: totalValuation,
+      generatedTransferIds,
+    });
+  }
+
+  // Batch Reject Recommendations
+  if (url === "/recommendations/batch-reject" && method === "POST") {
+    const { ids = [], reason = "Batch rejected by operations manager" } = body;
+    const recList = getRecommendationsList();
+    let rejectedCount = 0;
+
+    for (const id of ids) {
+      const rec = recList.find((r) => r.id === id || r.recommendationNumber === id);
+      if (!rec) continue;
+      if (rec.status === "APPROVED" || rec.status === "REJECTED" || rec.status === "EXECUTED") {
+        continue;
+      }
+
+      rec.status = "REJECTED";
+      rec.updatedAt = new Date().toISOString();
+      rejectedCount++;
+
+      addAuditLogEntry({
+        action: "BATCH_REJECT_RECOMMENDATION",
+        entityName: "Recommendation",
+        entityId: rec.recommendationNumber,
+        newValues: { status: "REJECTED", reason },
+      });
+    }
+
+    saveRecommendationsList(recList);
+
+    return createSuccessResponse(config, {
+      rejectedCount,
+      reason,
+    });
+  }
+
   if (url === "/recommendations/rules" && method === "GET") {
     return createSuccessResponse(config, [
       { id: "rule-1", name: "Minimum Donor Safety Floor", metric: "DONOR_DOI", threshold: 7.0, isEnforced: true },
       { id: "rule-2", name: "Maximum Line-Haul Radius", metric: "DISTANCE_KM", threshold: 300, isEnforced: true },
       { id: "rule-3", name: "Destination Stock Target", metric: "TARGET_DOI", threshold: 14.0, isEnforced: true },
     ]);
+  }
+
+  if (
+    (url === "/intelligence/scan" || url === "/recommendations/scan" || url === "/scan") &&
+    method === "POST"
+  ) {
+    return createSuccessResponse(config, {
+      evaluatedPairs: 60,
+      createdRecommendations: 2,
+      highPriorityCount: 1,
+      scanDurationMs: 420,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   if (url === "/action-center/model-config" && method === "GET") {

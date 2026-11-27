@@ -240,7 +240,13 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <DataScopeProvider>
-          <BrowserRouter basename={import.meta.env.BASE_URL}>
+          <BrowserRouter
+            basename={import.meta.env.BASE_URL}
+            future={{
+              v7_startTransition: true,
+              v7_relativeSplatPath: true,
+            }}
+          >
             <Routes>
               {/* Standalone Corporate Login and Password Reset Routes */}
               <Route path="/login" element={<LoginPage />} />

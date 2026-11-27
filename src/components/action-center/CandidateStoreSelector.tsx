@@ -11,6 +11,13 @@ import { type CandidateStoreDto } from "@/api/action-center.api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export interface CandidateStoreSelectorProps {
@@ -230,42 +237,94 @@ export const CandidateStoreSelector: React.FC<CandidateStoreSelectorProps> = ({
             <Label htmlFor="candidate-donor-select" className="text-xs font-semibold text-slate-700">
               Select Source Store (Ranked Candidates) <span className="text-red-500 font-bold ml-1">*</span>
             </Label>
-            <select
-              id="candidate-donor-select"
+            <Select
               value={selectedStoreId || "CENTRAL_SUPPLY"}
-              onChange={(e) => {
-                onStoreChange(e.target.value);
+              onValueChange={(val) => {
+                onStoreChange(val);
               }}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              disabled={disabled}
             >
-              {candidates.map((cand) => {
-                if (cand.storeId === "CENTRAL_SUPPLY") {
-                  return (
-                    <option key={cand.storeId} value="CENTRAL_SUPPLY">
-                      Rank {cand.rank}: 🏭 Central Supply / Mother Hub (Direct DC Line-Haul • Recommended)
-                    </option>
-                  );
-                }
-                const isFloorViolated =
-                  (cand.availableStock - quantity) / (cand.ads || 1.8) < 7.0 ||
-                  cand.availableStock < quantity;
+              <SelectTrigger
+                id="candidate-donor-select"
+                className="h-auto min-h-10 w-full py-2 px-3 text-xs font-sans text-left bg-white border-slate-300 [&>span]:text-left [&>span]:break-words [&>span]:whitespace-normal [&>span]:line-clamp-2"
+              >
+                <SelectValue placeholder="Select candidate donor store..." />
+              </SelectTrigger>
+              <SelectContent
+                position="popper"
+                className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-3rem)] sm:max-w-xl bg-white border border-slate-200 shadow-xl z-50 p-1"
+              >
+                {candidates.map((cand) => {
+                  if (cand.storeId === "CENTRAL_SUPPLY") {
+                    return (
+                      <SelectItem
+                        key={cand.storeId}
+                        value="CENTRAL_SUPPLY"
+                        className="py-2.5 pl-8 pr-3 text-xs cursor-pointer focus:bg-slate-50 border-b border-slate-100 last:border-b-0 whitespace-normal break-words"
+                      >
+                        <div className="flex flex-col gap-0.5 w-full text-left break-words">
+                          <div className="font-semibold text-slate-900 break-words flex items-center gap-1.5">
+                            <span>Rank {cand.rank}:</span>
+                            <span>🏭 Central Supply / Mother Hub</span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 break-words">
+                            Direct DC Line-Haul • Recommended
+                          </div>
+                        </div>
+                      </SelectItem>
+                    );
+                  }
+                  const isFloorViolated =
+                    (cand.availableStock - quantity) / (cand.ads || 1.8) < 7.0 ||
+                    cand.availableStock < quantity;
 
-                return (
-                  <option key={cand.storeId} value={cand.storeId}>
-                    Rank {cand.rank}: {cand.storeName} ({cand.storeCode} • {cand.distanceKm} km • Avail: {cand.availableStock.toFixed(0)}u
-                    {isFloorViolated
-                      ? ` • ⚠️ DOI Floor Risk at ${quantity.toFixed(0)}u (Safe ≤ ${cand.excessUnitsAboveSafety}u)`
-                      : ` • ${cand.currentDOI.toFixed(1)}d DOI`}
-                    )
-                  </option>
-                );
-              })}
-              {!candidates.some((c) => c.storeId === "CENTRAL_SUPPLY") && (
-                <option value="CENTRAL_SUPPLY">
-                  Rank {candidates.length + 1}: 🏭 Central Supply / Mother Hub (Fallback • DC Transit)
-                </option>
-              )}
-            </select>
+                  return (
+                    <SelectItem
+                      key={cand.storeId}
+                      value={cand.storeId}
+                      className="py-2.5 pl-8 pr-3 text-xs cursor-pointer focus:bg-slate-50 border-b border-slate-100 last:border-b-0 whitespace-normal break-words"
+                    >
+                      <div className="flex flex-col gap-0.5 w-full text-left break-words">
+                        <div className="font-semibold text-slate-900 break-words">
+                          Rank {cand.rank}: {cand.storeName}
+                        </div>
+                        <div className="text-[11px] text-slate-500 break-words flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                          <span className="font-mono font-medium text-slate-700">{cand.storeCode}</span>
+                          <span>•</span>
+                          <span>{cand.distanceKm} km</span>
+                          <span>•</span>
+                          <span>Avail: {cand.availableStock.toFixed(0)}u</span>
+                          <span>•</span>
+                          {isFloorViolated ? (
+                            <span className="text-amber-700 font-semibold flex items-center gap-1">
+                              ⚠️ DOI Floor Risk at {quantity.toFixed(0)}u (Safe ≤ {cand.excessUnitsAboveSafety}u)
+                            </span>
+                          ) : (
+                            <span className="text-emerald-700 font-medium">{cand.currentDOI.toFixed(1)}d DOI</span>
+                          )}
+                        </div>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
+                {!candidates.some((c) => c.storeId === "CENTRAL_SUPPLY") && (
+                  <SelectItem
+                    value="CENTRAL_SUPPLY"
+                    className="py-2.5 pl-8 pr-3 text-xs cursor-pointer focus:bg-slate-50 border-b border-slate-100 last:border-b-0 whitespace-normal break-words"
+                  >
+                    <div className="flex flex-col gap-0.5 w-full text-left break-words">
+                      <div className="font-semibold text-slate-900 break-words flex items-center gap-1.5">
+                        <span>Rank {candidates.length + 1}:</span>
+                        <span>🏭 Central Supply / Mother Hub</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 break-words">
+                        Direct DC Line-Haul • Recommended fallback
+                      </div>
+                    </div>
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Transfer Quantity Stepper with clean alignment */}

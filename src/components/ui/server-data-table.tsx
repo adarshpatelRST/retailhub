@@ -42,6 +42,7 @@ export interface ServerDataTableProps<T extends { id: string }> {
   enableSelection?: boolean;
   selectedIds?: string[];
   onSelectionChange?: (ids: string[]) => void;
+  isRowSelectable?: (row: T) => boolean;
   emptyMessage?: string;
   toolbarActions?: React.ReactNode;
   className?: string;
@@ -67,6 +68,7 @@ export function ServerDataTable<T extends { id: string }>({
   enableSelection = false,
   selectedIds = [],
   onSelectionChange,
+  isRowSelectable,
   emptyMessage = "No matching records found.",
   toolbarActions,
   className,
@@ -100,17 +102,27 @@ export function ServerDataTable<T extends { id: string }>({
     }
   };
 
-  const allRowIds = React.useMemo(() => data.map((row) => row.id), [data]);
+  const selectableRows = React.useMemo(() => {
+    if (!isRowSelectable) return data;
+    return data.filter(isRowSelectable);
+  }, [data, isRowSelectable]);
+
+  const selectableRowIds = React.useMemo(
+    () => selectableRows.map((row) => row.id),
+    [selectableRows],
+  );
+
   const isAllSelected =
-    data.length > 0 && allRowIds.every((id) => selectedIds.includes(id));
+    selectableRowIds.length > 0 &&
+    selectableRowIds.every((id) => selectedIds.includes(id));
 
   const handleToggleAll = (checked: boolean) => {
     if (!onSelectionChange) return;
     if (checked) {
-      const merged = Array.from(new Set([...selectedIds, ...allRowIds]));
+      const merged = Array.from(new Set([...selectedIds, ...selectableRowIds]));
       onSelectionChange(merged);
     } else {
-      onSelectionChange(selectedIds.filter((id) => !allRowIds.includes(id)));
+      onSelectionChange(selectedIds.filter((id) => !selectableRowIds.includes(id)));
     }
   };
 
@@ -260,13 +272,22 @@ export function ServerDataTable<T extends { id: string }>({
                   >
                     {enableSelection && (
                       <td className="px-4 py-3 align-middle whitespace-nowrap">
-                        <Checkbox
-                          aria-label={`Select row ${row.id}`}
-                          checked={isSelected}
-                          onCheckedChange={(val) =>
-                            handleToggleRow(row.id, Boolean(val))
-                          }
-                        />
+                        {(() => {
+                          const canSelect = isRowSelectable ? isRowSelectable(row) : true;
+                          return (
+                            <Checkbox
+                              aria-label={`Select row ${row.id}`}
+                              checked={isSelected}
+                              disabled={!canSelect}
+                              className={!canSelect ? "opacity-30 cursor-not-allowed" : ""}
+                              onCheckedChange={(val) => {
+                                if (canSelect) {
+                                  handleToggleRow(row.id, Boolean(val));
+                                }
+                              }}
+                            />
+                          );
+                        })()}
                       </td>
                     )}
                     {columns.map((col, colIndex) => {

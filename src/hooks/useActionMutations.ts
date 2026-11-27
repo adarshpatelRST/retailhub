@@ -117,8 +117,11 @@ export function useActionMutations() {
       }
     },
     onSuccess: async (result) => {
+      const approvedCount = result?.approvedCount ?? 0;
+      const totalUnits = result?.totalUnitsApproved ?? 0;
+      const totalVal = result?.totalValuationInr ?? 0;
       toast.success(
-        `Batch approved ${result.approvedCount} transfers (${result.totalUnitsApproved.toFixed(3)} units • ₹${result.totalValuationInr.toLocaleString("en-IN")}).`,
+        `Batch approved ${approvedCount} transfers (${totalUnits.toFixed(3)} units • ₹${totalVal.toLocaleString("en-IN")}).`,
       );
       await invalidateRecommendations();
     },

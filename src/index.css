@@ -228,3 +228,15 @@
   text-decoration: line-through;
 }
 
+/* Word-break and wrapping for select dropdown options */
+select,
+select option,
+[data-radix-select-viewport],
+[data-radix-select-content],
+[data-radix-select-item] {
+  word-break: break-word;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+

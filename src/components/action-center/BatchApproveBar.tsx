@@ -47,14 +47,14 @@ export const BatchApproveBar: React.FC<BatchApproveBarProps> = ({
   );
 
   const totalUnits = React.useMemo(
-    () => selectedRecords.reduce((acc, rec) => acc + rec.recommendedQty, 0),
+    () => selectedRecords.reduce((acc, rec) => acc + (rec.recommendedQty || 0), 0),
     [selectedRecords],
   );
 
   const totalValuation = React.useMemo(
     () =>
       selectedRecords.reduce(
-        (acc, rec) => acc + rec.recommendedQty * rec.unitCost,
+        (acc, rec) => acc + (rec.recommendedQty || 0) * (rec.unitCost || 0),
         0,
       ),
     [selectedRecords],
@@ -64,7 +64,7 @@ export const BatchApproveBar: React.FC<BatchApproveBarProps> = ({
     return null;
   }
 
-  const summaryText = `${selectedIds.length} Transfers Selected • Total ${totalUnits.toFixed(3)} Units • Est. Value ₹${totalValuation.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+  const summaryText = `${selectedIds.length} Transfers Selected • Total ${(totalUnits || 0).toFixed(3)} Units • Est. Value ₹${(totalValuation || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
   const handleBatchRejectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -255,12 +255,12 @@ export const BatchApproveBar: React.FC<BatchApproveBarProps> = ({
                   </strong>{" "}
                   totaling{" "}
                   <strong className="font-mono text-slate-800">
-                    {totalUnits.toFixed(3)} units
+                    {(totalUnits || 0).toFixed(3)} units
                   </strong>{" "}
                   with an estimated valuation of{" "}
                   <strong className="font-mono text-slate-800">
                     ₹
-                    {totalValuation.toLocaleString("en-IN", {
+                    {(totalValuation || 0).toLocaleString("en-IN", {
                       maximumFractionDigits: 2,
                     })}
                   </strong>
@@ -279,10 +279,10 @@ export const BatchApproveBar: React.FC<BatchApproveBarProps> = ({
                       {rec.recommendationNumber} • {rec.productName}
                     </span>
                     <span className="font-semibold text-slate-900 shrink-0">
-                      {rec.recommendedQty.toFixed(3)} u (₹
-                      {(rec.recommendedQty * rec.unitCost).toLocaleString(
-                        "en-IN",
-                      )}
+                      {(rec.recommendedQty || 0).toFixed(3)} u (₹
+                      {(
+                        (rec.recommendedQty || 0) * (rec.unitCost || 0)
+                      ).toLocaleString("en-IN")}
                       )
                     </span>
                   </div>

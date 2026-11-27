@@ -248,6 +248,12 @@ export const ActionCenterListView: React.FC = () => {
     setSelectedIds([]);
   };
 
+  const isRowSelectable = React.useCallback(
+    (rec: RecommendationDto) =>
+      rec.status === "OPEN" || rec.status === "GENERATED" || rec.status === "REVIEWED",
+    [],
+  );
+
   // Reusable columns with NO table column sorting indicators (sortable: false/omitted)
   const columns: ServerColumn<RecommendationDto>[] = React.useMemo(
     () => [
@@ -648,6 +654,7 @@ export const ActionCenterListView: React.FC = () => {
             totalItems={totalItems}
             onPageChange={setPage}
             enableSelection={activeTab === "ALL_OPEN"}
+            isRowSelectable={isRowSelectable}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
             emptyMessage="No inventory rebalance recommendations match the active filters."
@@ -680,7 +687,7 @@ export const ActionCenterListView: React.FC = () => {
             <ActionCenterCardMobile
               key={rec.id}
               recommendation={rec}
-              selectable={activeTab === "ALL_OPEN"}
+              selectable={activeTab === "ALL_OPEN" && isRowSelectable(rec)}
               selected={selectedIds.includes(rec.id)}
               onSelectChange={(checked: boolean) => {
                 if (checked) {
