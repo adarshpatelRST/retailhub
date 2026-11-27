@@ -133,11 +133,14 @@ export const LoginPage: React.FC = () => {
               <Building2 className="size-6" />
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              RetailHub Enterprise
+              RepleniQ™
             </h1>
           </div>
           <p className="text-sm text-slate-500">
-            High-Velocity Retail Operations (D-Mart / JioMart Model)
+            High-Velocity Retail Operations &amp; Rebalance OS
+          </p>
+          <p className="text-[11px] font-semibold tracking-wide text-blue-700">
+            Powered by RustyStick Technologies LLP
           </p>
         </div>
 
@@ -260,6 +263,10 @@ export const LoginPage: React.FC = () => {
           <span>Password: <strong className="text-slate-600 font-mono">RetailHub@2026</strong></span>
         </div>
       </div>
+
+      <p className="text-[11px] text-slate-400 text-center relative z-10">
+        RepleniQ™ — Powered by RustyStick Technologies LLP &bull; &copy; 2026 All Rights Reserved
+      </p>
     </div>
   );
 };

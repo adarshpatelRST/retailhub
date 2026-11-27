@@ -195,7 +195,7 @@ export const RH_SideNavigation: React.FC<RH_SideNavigationProps> = ({
 
   const renderGroups = (isCollapsed: boolean, closeOnSelect: boolean) => (
     <nav
-      aria-label="RetailHub Domain Navigation"
+      aria-label="RepleniQ Domain Navigation"
       className="flex-1 space-y-5 overflow-y-auto px-3 py-4"
     >
       {filteredGroups.map((group) => (
@@ -271,7 +271,7 @@ export const RH_SideNavigation: React.FC<RH_SideNavigationProps> = ({
         <SheetContent side="left" className="w-72 p-0 flex flex-col bg-white border-r border-slate-200 shadow-2xl">
           <SheetHeader className="border-b border-slate-200 px-4 py-3.5 text-left bg-white">
             <SheetTitle className="text-sm font-bold text-slate-900">
-              RetailHub Navigation
+              RepleniQ™ Navigation
             </SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto bg-white">

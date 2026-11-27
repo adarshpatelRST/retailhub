@@ -193,8 +193,11 @@ export const ForgotPasswordPage: React.FC = () => {
             <Flame className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            RetailHub Enterprise
+            RepleniQ™
           </h1>
+          <p className="text-[11px] font-semibold tracking-wide text-blue-700 mt-0.5">
+            Powered by RustyStick Technologies LLP
+          </p>
           <p className="text-sm text-slate-500 mt-1">
             {step === "EMAIL" && "Account Recovery & Password Reset"}
             {step === "OTP" && "Verify Corporate Identity"}

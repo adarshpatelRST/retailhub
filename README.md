@@ -1,10 +1,10 @@
-# RetailHub Enterprise — Intelligent Store Operations & Autonomous Stock Rebalance OS
+# RepleniQ™ — Intelligent Store Operations & Autonomous Stock Rebalance OS
 
 <div align="center">
 
-![RetailHub Enterprise Banner](https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=1200&q=80)
+![RepleniQ Banner](https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=1200&q=80)
 
-**High-Velocity Retail Operations Platform (D-Mart / JioMart Model)**  
+**Powered by RustyStick Technologies LLP**  
 *Next-generation multi-store inventory optimization, peer-to-peer stock rebalancing, and autonomous replenishment engine.*
 
 </div>

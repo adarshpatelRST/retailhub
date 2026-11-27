@@ -32,7 +32,7 @@ export function exportToPdf<T>(
   );
 
   doc.setFontSize(16);
-  doc.text(`RetailHub — ${title}`, 14, 15);
+  doc.text(`RepleniQ™ — ${title}`, 14, 15);
   doc.setFontSize(10);
   doc.setTextColor(100);
   doc.text(subtitle, 14, 22);
@@ -52,7 +52,7 @@ export function exportToPdf<T>(
       const pageCount = doc.getNumberOfPages();
       doc.setFontSize(8);
       doc.text(
-        `Generated on ${new Date().toLocaleString()} • Page ${dataArg.pageNumber} of ${pageCount}`,
+        `Powered by RustyStick Technologies LLP • Generated on ${new Date().toLocaleString()} • Page ${dataArg.pageNumber} of ${pageCount}`,
         14,
         doc.internal.pageSize.height - 10,
       );

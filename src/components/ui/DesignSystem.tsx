@@ -108,7 +108,7 @@ export const LoadingSpinner: React.FC<{
 );
 
 export const LoadingPage: React.FC<{ label?: string }> = ({
-  label = "Loading RetailHub workspace...",
+  label = "Loading RepleniQ™ workspace...",
 }) => (
   <div className="flex min-h-[360px] w-full flex-col items-center justify-center gap-3 p-8 text-center">
     <Loader2 className="h-8 w-8 size-8 animate-spin text-primary shrink-0" />

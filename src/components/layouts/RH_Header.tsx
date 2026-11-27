@@ -57,10 +57,10 @@ export const RH_Header: React.FC<RH_HeaderProps> = ({
           </div>
           <div className="hidden sm:block">
             <div className="text-sm font-bold tracking-tight text-foreground leading-none">
-              RetailHub Enterprise
+              RepleniQ™
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
-              High-Velocity Store &amp; Rebalance OS
+              Powered by RustyStick Technologies LLP
             </div>
           </div>
         </div>

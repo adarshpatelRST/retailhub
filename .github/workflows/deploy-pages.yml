@@ -1,4 +1,4 @@
-name: Deploy RetailHub to GitHub Pages
+name: Deploy RepleniQ to GitHub Pages
 
 on:
   push:
