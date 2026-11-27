@@ -57,7 +57,10 @@ export const RH_Header: React.FC<RH_HeaderProps> = ({
           </div>
           <div className="hidden sm:block">
             <div className="text-sm font-bold tracking-tight text-foreground leading-none">
-              RepleniQ™
+              RepleniQ
+              <sup className="ml-0.5 text-[8px] font-semibold tracking-normal leading-none relative -top-[0.55em] text-muted-foreground">
+                TM
+              </sup>
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
               Powered by RustyStick Technologies LLP

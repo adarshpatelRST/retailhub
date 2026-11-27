@@ -271,7 +271,11 @@ export const RH_SideNavigation: React.FC<RH_SideNavigationProps> = ({
         <SheetContent side="left" className="w-72 p-0 flex flex-col bg-white border-r border-slate-200 shadow-2xl">
           <SheetHeader className="border-b border-slate-200 px-4 py-3.5 text-left bg-white">
             <SheetTitle className="text-sm font-bold text-slate-900">
-              RepleniQ™ Navigation
+              RepleniQ
+              <sup className="ml-0.5 text-[8px] font-semibold tracking-normal leading-none relative -top-[0.55em] text-slate-500">
+                TM
+              </sup>{" "}
+              Navigation
             </SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto bg-white">

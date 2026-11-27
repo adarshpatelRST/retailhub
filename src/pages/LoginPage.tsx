@@ -133,7 +133,10 @@ export const LoginPage: React.FC = () => {
               <Building2 className="size-6" />
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              RepleniQ™
+              RepleniQ
+              <sup className="ml-0.5 text-[11px] font-semibold tracking-normal leading-none relative -top-[0.75em] text-slate-500">
+                TM
+              </sup>
             </h1>
           </div>
           <p className="text-sm text-slate-500">
@@ -265,7 +268,7 @@ export const LoginPage: React.FC = () => {
       </div>
 
       <p className="text-[11px] text-slate-400 text-center relative z-10">
-        RepleniQ™ — Powered by RustyStick Technologies LLP &bull; &copy; 2026 All Rights Reserved
+        RepleniQ<sup className="ml-0.5 text-[8px] font-semibold leading-none relative -top-[0.4em]">TM</sup> — Powered by RustyStick Technologies LLP &bull; &copy; 2026 All Rights Reserved
       </p>
     </div>
   );

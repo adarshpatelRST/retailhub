@@ -193,7 +193,10 @@ export const ForgotPasswordPage: React.FC = () => {
             <Flame className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            RepleniQ™
+            RepleniQ
+            <sup className="ml-0.5 text-[11px] font-semibold tracking-normal leading-none relative -top-[0.75em] text-slate-500">
+              TM
+            </sup>
           </h1>
           <p className="text-[11px] font-semibold tracking-wide text-blue-700 mt-0.5">
             Powered by RustyStick Technologies LLP
